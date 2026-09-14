@@ -77,7 +77,8 @@ class McpAuthMiddleware(BaseHTTPMiddleware):
         return jti in self.revoked_jtis
 
     async def dispatch(self, request: Request, call_next):
-        if request.url.path in self.exempt_paths:
+        path = request.url.path
+        if any(path == ep or path.startswith(ep.rstrip("/") + "/") for ep in self.exempt_paths):
             return await call_next(request)
 
         token = None

@@ -1,4 +1,3 @@
-import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 from sdk.python.mcp_auth_middleware import McpAuthMiddleware

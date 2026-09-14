@@ -1,0 +1,90 @@
+{% extends "onboarding/base.html" %}
+
+{% block title %}Authenticate &bull; digital-invoice-web Onboarding{% endblock %}
+
+{% block stepper %}
+<div class="stepper">
+    <div class="step-pill active">
+        <span class="step-num">1</span>
+        <span>Central Auth</span>
+    </div>
+    <div class="step-divider"></div>
+    <div class="step-pill">
+        <span class="step-num">2</span>
+        <span>Credentials</span>
+    </div>
+    <div class="step-divider"></div>
+    <div class="step-pill">
+        <span class="step-num">3</span>
+        <span>Connect Client</span>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width: 580px; margin: 0 auto;">
+    <div class="card-header" style="text-align: center;">
+        <h1 class="card-title">Identify Your Tenant</h1>
+        <p class="card-subtitle">Authenticate via Central Auth to securely bind your organization's credentials.</p>
+    </div>
+
+    {% if error %}
+    <div class="alert alert-error">
+        <span>{{ error }}</span>
+    </div>
+    {% endif %}
+
+    {% if info %}
+    <div class="alert alert-info">
+        <span>{{ info }}</span>
+    </div>
+    {% endif %}
+
+    <div style="background: rgba(99, 102, 241, 0.06); border: 1px solid var(--border-accent); border-radius: var(--radius-md); padding: 20px; margin-bottom: 24px;">
+        <div style="display: flex; gap: 12px; align-items: flex-start;">
+            <span style="font-size: 1.25rem;">🔒</span>
+            <div style="font-size: 0.875rem; color: #cbd5e1; line-height: 1.5;">
+                <strong>Zero-Trust Tenant Isolation:</strong> You must log in via Central Auth so your <code>tenant_id</code> can be verified cryptographically from official JWT claims. Manual tenant entry is prohibited to prevent tenant spoofing.
+            </div>
+        </div>
+    </div>
+
+    {% if auth_url %}
+    <div style="text-align: center; margin-bottom: 28px;">
+        <a href="{{ auth_url }}" class="btn btn-primary" style="width: 100%; padding: 14px; font-size: 1rem;">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"></path>
+                <polyline points="10 17 15 12 10 7"></polyline>
+                <line x1="15" y1="12" x2="3" y2="12"></line>
+            </svg>
+            Sign in with Central Auth
+        </a>
+    </div>
+
+    <div style="position: relative; text-align: center; margin: 28px 0;">
+        <div style="height: 1px; background: var(--border-subtle); width: 100%;"></div>
+        <span style="position: absolute; top: -10px; left: 50%; transform: translateX(-50%); background: var(--bg-surface); padding: 0 12px; font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Or enter token manually</span>
+    </div>
+    {% endif %}
+
+    <form action="/onboarding/login" method="POST">
+        <div class="form-group">
+            <label class="form-label" for="token">Central Auth JWT / Bearer Token</label>
+            <textarea 
+                id="token" 
+                name="token" 
+                rows="4" 
+                class="form-control" 
+                placeholder="eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+                required
+                style="font-family: var(--font-mono); font-size: 0.8rem; resize: vertical;"
+            ></textarea>
+            <p class="form-hint">Paste an access token issued by Central Auth with audience <code>{{ expected_audience }}</code>.</p>
+        </div>
+
+        <button type="submit" class="btn btn-secondary" style="width: 100%;">
+            Verify Token & Continue &rarr;
+        </button>
+    </form>
+</div>
+{% endblock %}

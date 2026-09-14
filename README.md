@@ -88,13 +88,24 @@ This script provisions:
 
 ## 5. Onboarding a New Tenant's Credentials
 
-Use the provided CLI onboarding utility:
+### Option A: Self-Service Web UI (Recommended)
+
+New users can onboard directly through the self-service web interface without needing terminal access or manual tenant UUID handling:
+
+1. Navigate to `https://<deployed-domain>/onboarding` (e.g. `http://localhost:8000/onboarding`).
+2. **Step 1 — Central Auth Authentication**: Click "Sign in with Central Auth" (or enter a valid token). The server verifies your token and cryptographically resolves your `tenant_id` from claims. Manual tenant entry is prohibited to prevent tenant spoofing.
+3. **Step 2 — Credential Configuration & Test**: Enter your Company Name, Portal Email, and Password (masked input, `autocomplete="new-password"`). Credentials are encrypted with AES-256-GCM. Click "Test Connection" to trigger an instant headless browser login check.
+4. **Step 3 & 4 — LLM Client Connect**: Copy the MCP endpoint (`https://<deployed-domain>/mcp`), note that no API key is required (uses OAuth 2.1), and follow the step-by-step guides for Claude, Claude Code, ChatGPT, Cursor, and Antigravity.
+
+*Note: All onboarding pages include `<meta name="robots" content="noindex, nofollow">` to prevent search engine indexing, and credential endpoints are rate-limited.*
+
+### Option B: CLI Onboarding Utility (Admin/Developer Alternative)
 
 ```bash
 # 1. Generate an encryption master key (if not already set in .env):
 python scripts/generate_master_key.py
 
-# 2. Add tenant credentials to Supabase:
+# 2. Add tenant credentials to Supabase via CLI:
 python scripts/add_tenant.py \
   --tenant-id "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11" \
   --company-name "Acme Logistics Inc" \

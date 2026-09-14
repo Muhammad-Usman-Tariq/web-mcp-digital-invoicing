@@ -46,3 +46,10 @@ def test_tampered_ciphertext_fails():
 def test_invalid_key_length_rejected():
     with pytest.raises(ValueError):
         encrypt_string("test", key="short_key")
+
+def test_bytes_encryption_roundtrip():
+    key = generate_key_hex()
+    data = b"raw binary secret \x00\xff\xfe"
+    encrypted = encrypt_bytes(data, key=key)
+    decrypted = decrypt_bytes(encrypted, key=key)
+    assert decrypted == data

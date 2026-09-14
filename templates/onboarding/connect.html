@@ -1,0 +1,367 @@
+{% extends "onboarding/base.html" %}
+
+{% block title %}Connect LLM Client &bull; digital-invoice-web Onboarding{% endblock %}
+
+{% block extra_head %}
+<style>
+    .tab-bar {
+        display: flex;
+        gap: 8px;
+        border-bottom: 1px solid var(--border-subtle);
+        margin-bottom: 24px;
+        overflow-x: auto;
+        padding-bottom: 2px;
+    }
+
+    .tab-btn {
+        background: transparent;
+        border: none;
+        color: var(--text-secondary);
+        padding: 10px 18px;
+        font-size: 0.95rem;
+        font-weight: 500;
+        cursor: pointer;
+        border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+        border-bottom: 2px solid transparent;
+        transition: all 0.2s;
+        white-space: nowrap;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .tab-btn:hover {
+        color: var(--text-primary);
+        background: rgba(255, 255, 255, 0.03);
+    }
+
+    .tab-btn.active {
+        color: #e0e7ff;
+        border-bottom-color: var(--primary);
+        background: rgba(99, 102, 241, 0.08);
+        font-weight: 600;
+    }
+
+    .tab-content {
+        display: none;
+    }
+
+    .tab-content.active {
+        display: block;
+        animation: fadeIn 0.2s ease-in;
+    }
+
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(4px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .guide-steps {
+        list-style: none;
+        counter-reset: guide-counter;
+        margin: 20px 0;
+    }
+
+    .guide-step {
+        counter-increment: guide-counter;
+        margin-bottom: 18px;
+        padding-left: 36px;
+        position: relative;
+        font-size: 0.95rem;
+        line-height: 1.6;
+        color: #cbd5e1;
+    }
+
+    .guide-step::before {
+        content: counter(guide-counter);
+        position: absolute;
+        left: 0;
+        top: 2px;
+        width: 24px;
+        height: 24px;
+        background: rgba(99, 102, 241, 0.15);
+        color: #a5b4fc;
+        border: 1px solid var(--border-accent);
+        border-radius: 50%;
+        font-size: 0.75rem;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .guide-disclaimer {
+        font-size: 0.8rem;
+        color: var(--text-muted);
+        background: rgba(255, 255, 255, 0.02);
+        border-left: 3px solid var(--border-subtle);
+        padding: 8px 12px;
+        margin-top: 20px;
+        border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+        font-style: italic;
+    }
+
+    .screenshot-placeholder {
+        margin: 14px 0;
+        border: 2px dashed rgba(255, 255, 255, 0.15);
+        border-radius: var(--radius-md);
+        padding: 24px;
+        text-align: center;
+        color: var(--text-muted);
+        font-size: 0.85rem;
+        background: rgba(0, 0, 0, 0.2);
+    }
+</style>
+{% endblock %}
+
+{% block stepper %}
+<div class="stepper">
+    <div class="step-pill completed">
+        <span class="step-num">✓</span>
+        <span>Central Auth</span>
+    </div>
+    <div class="step-divider"></div>
+    <a href="/onboarding/credentials" class="step-pill completed">
+        <span class="step-num">✓</span>
+        <span>Credentials</span>
+    </a>
+    <div class="step-divider"></div>
+    <div class="step-pill active">
+        <span class="step-num">3</span>
+        <span>Connect Client</span>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div style="max-width: 820px; margin: 0 auto;">
+
+    <!-- Server Connection Details Card -->
+    <div class="card" style="border-color: rgba(99, 102, 241, 0.35);">
+        <div class="card-header">
+            <h1 class="card-title">Connect MCP to Your AI Client</h1>
+            <p class="card-subtitle">
+                Use your preferred LLM assistant (Claude, Claude Code, ChatGPT, Cursor, Antigravity) to automate Digital Invoicing Software workflows.
+            </p>
+        </div>
+
+        <!-- OAuth Callout Banner -->
+        <div class="alert alert-info" style="align-items: flex-start;">
+            <div style="font-size: 1.3rem;">⚡</div>
+            <div>
+                <strong style="color: #ffffff;">No API Key Needed:</strong>
+                <p style="margin-top: 4px; font-size: 0.875rem; line-height: 1.5;">
+                    This server uses <strong>OAuth 2.1 authentication</strong>. You do <strong>not</strong> need to copy or manage API keys. When you add this MCP server URL to your client, the client will prompt you to authenticate via Central Auth (the exact same account you used in Step 1). That step automatically issues the access token behind the scenes.
+                </p>
+            </div>
+        </div>
+
+        <!-- MCP Server URLs -->
+        <div>
+            <label class="form-label" style="font-weight: 600; display: flex; justify-content: space-between;">
+                <span>MCP Server Endpoint (Streamable HTTP / SSE)</span>
+                <span style="font-size: 0.8rem; color: var(--accent-green); font-weight: 500;">● Online &amp; Ready</span>
+            </label>
+            <div class="copy-box">
+                <span class="copy-text" id="mcp-url">{{ mcp_server_url }}</span>
+                <button class="btn btn-primary btn-sm" onclick="copyText(document.getElementById('mcp-url').textContent, 'MCP Server URL copied!')">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                    </svg>
+                    Copy URL
+                </button>
+            </div>
+            <p class="form-hint" style="margin-bottom: 24px;">
+                For SSE transport clients that require an explicit stream endpoint, you can also use: <code style="font-family: var(--font-mono); color: #cbd5e1;">{{ base_url }}/sse</code>
+            </p>
+        </div>
+    </div>
+
+    <!-- Per-LLM Step-by-Step Guides -->
+    <div class="card">
+        <div class="card-header">
+            <h2 class="card-title" style="font-size: 1.25rem;">Step-by-Step Setup Guides</h2>
+            <p class="card-subtitle">Choose your AI platform below for tailored setup instructions.</p>
+        </div>
+
+        <!-- Tabs Navigation -->
+        <div class="tab-bar">
+            <button class="tab-btn active" onclick="switchTab('claude-desktop')">
+                <span>Claude / Desktop</span>
+            </button>
+            <button class="tab-btn" onclick="switchTab('claude-code')">
+                <span>Claude Code (CLI)</span>
+            </button>
+            <button class="tab-btn" onclick="switchTab('chatgpt')">
+                <span>ChatGPT</span>
+            </button>
+            <button class="tab-btn" onclick="switchTab('ides')">
+                <span>Cursor / Antigravity</span>
+            </button>
+        </div>
+
+        <!-- TAB 1: Claude Desktop / Web -->
+        <div id="tab-claude-desktop" class="tab-content active">
+            <ol class="guide-steps">
+                <li class="guide-step">
+                    <strong>Open Settings:</strong> In the Claude desktop app or web interface, click on your profile/account icon in the bottom-left corner and select <strong>Settings</strong>.
+                </li>
+                <li class="guide-step">
+                    <strong>Navigate to Connectors:</strong> Select the <strong>Connectors</strong> (or <strong>Developer / MCP</strong>) tab from the left sidebar.
+                </li>
+                <li class="guide-step">
+                    <strong>Add Custom Connector:</strong> Click the <strong>Add custom connector</strong> button.
+                </li>
+                <li class="guide-step">
+                    <strong>Paste the MCP URL:</strong> In the URL field, paste the MCP Server Endpoint:
+                    <div class="copy-box" style="margin: 8px 0;">
+                        <span class="copy-text">{{ mcp_server_url }}</span>
+                        <button class="btn btn-secondary btn-sm" onclick="copyText('{{ mcp_server_url }}')">Copy</button>
+                    </div>
+                </li>
+                <li class="guide-step">
+                    <strong>Click Connect:</strong> Claude will verify the server and initiate the OAuth handshake.
+                </li>
+                <li class="guide-step">
+                    <strong>Authenticate with Central Auth:</strong> A browser window will open prompting you to log in with your Central Auth account. Approve access.
+                </li>
+                <li class="guide-step">
+                    <strong>Done!</strong> The connector now appears in your sidebar or prompt tools menu. You can ask Claude: <em>"Check my digital invoicing portal login status"</em> or <em>"Show me failed invoices"</em>.
+                </li>
+            </ol>
+
+            <!-- TODO: screenshot -->
+            <div class="screenshot-placeholder">
+                <p>📸 <em>[Screenshot Placeholder: Claude Settings &rarr; Connectors &rarr; Add Custom Connector dialog]</em></p>
+            </div>
+
+            <p class="guide-disclaimer">
+                Steps may change as the provider updates their product — verify before publishing.
+            </p>
+        </div>
+
+        <!-- TAB 2: Claude Code CLI -->
+        <div id="tab-claude-code" class="tab-content">
+            <ol class="guide-steps">
+                <li class="guide-step">
+                    <strong>Run the Setup Command:</strong> Open your terminal and run the following command to register the server:
+                    <div class="copy-box" style="margin: 8px 0;">
+                        <span class="copy-text" id="claude-cmd">claude mcp add --transport http digital-invoice-web {{ mcp_server_url }}</span>
+                        <button class="btn btn-secondary btn-sm" onclick="copyText(document.getElementById('claude-cmd').textContent)">Copy Command</button>
+                    </div>
+                </li>
+                <li class="guide-step">
+                    <strong>Browser Login:</strong> On first use, Claude Code will automatically launch a browser window to complete the Central Auth OAuth login.
+                </li>
+                <li class="guide-step">
+                    <strong>Approve Access:</strong> Click <strong>Authorize</strong> in your browser. The token is securely stored by Claude Code for all subsequent tool invocations.
+                </li>
+                <li class="guide-step">
+                    <strong>Verify Connection:</strong> Run <code>claude</code> and prompt: <em>"Use digital-invoice-web to inspect current dashboard metrics"</em>.
+                </li>
+            </ol>
+
+            <!-- TODO: screenshot -->
+            <div class="screenshot-placeholder">
+                <p>📸 <em>[Screenshot Placeholder: Terminal executing claude mcp add and browser authorization screen]</em></p>
+            </div>
+
+            <p class="guide-disclaimer">
+                Steps may change as the provider updates their product — verify before publishing.
+            </p>
+        </div>
+
+        <!-- TAB 3: ChatGPT Custom Connector -->
+        <div id="tab-chatgpt" class="tab-content">
+            <ol class="guide-steps">
+                <li class="guide-step">
+                    <strong>Open Settings &amp; Connected Apps:</strong> Click your profile name in ChatGPT, navigate to <strong>Settings</strong>, and choose <strong>Connected apps</strong> or <strong>Custom Connectors</strong> (available on supported subscription plans).
+                </li>
+                <li class="guide-step">
+                    <strong>Add New Connector:</strong> Click <strong>Create new connector</strong> or <strong>Add Connector</strong>.
+                </li>
+                <li class="guide-step">
+                    <strong>Configure Connection:</strong>
+                    <div style="margin: 8px 0; background: rgba(0,0,0,0.25); padding: 12px; border-radius: var(--radius-sm); font-size: 0.85rem;">
+                        <div>Name: <strong>digital-invoice-web</strong></div>
+                        <div>Server URL: <code style="color: #38bdf8;">{{ mcp_server_url }}</code></div>
+                        <div>Authentication: <strong>OAuth 2.1</strong> (Discovery URL: <code>{{ base_url }}/.well-known/oauth-authorization-server</code>)</div>
+                    </div>
+                </li>
+                <li class="guide-step">
+                    <strong>Log In via Central Auth:</strong> Complete the prompt to authenticate with Central Auth.
+                </li>
+                <li class="guide-step">
+                    <strong>Start Chatting:</strong> Create a new chat session and ensure the <code>digital-invoice-web</code> tool is enabled.
+                </li>
+            </ol>
+
+            <!-- TODO: screenshot -->
+            <div class="screenshot-placeholder">
+                <p>📸 <em>[Screenshot Placeholder: ChatGPT Connected Apps configuration screen]</em></p>
+            </div>
+
+            <p class="guide-disclaimer">
+                Steps may change as the provider updates their product — verify before publishing.
+            </p>
+        </div>
+
+        <!-- TAB 4: Cursor / Antigravity / IDEs -->
+        <div id="tab-ides" class="tab-content">
+            <ol class="guide-steps">
+                <li class="guide-step">
+                    <strong>Open IDE MCP Settings:</strong>
+                    <ul style="margin: 6px 0 6px 20px; font-size: 0.9rem; color: var(--text-secondary);">
+                        <li><strong>Cursor:</strong> Go to <em>Settings &rarr; Features &rarr; MCP</em> or edit <code>.cursor/mcp.json</code>.</li>
+                        <li><strong>Antigravity:</strong> Open MCP Server configuration dialog or <code>mcp_config.json</code>.</li>
+                    </ul>
+                </li>
+                <li class="guide-step">
+                    <strong>Add Server Configuration:</strong> Insert the HTTP/SSE server definition:
+                    <div class="copy-box" style="margin: 8px 0;">
+<pre class="copy-text" id="mcp-json" style="font-size: 0.8rem; white-space: pre;">{
+  "mcpServers": {
+    "digital-invoice-web": {
+      "url": "{{ mcp_server_url }}"
+    }
+  }
+}</pre>
+                        <button class="btn btn-secondary btn-sm" onclick="copyText(document.getElementById('mcp-json').textContent)">Copy JSON</button>
+                    </div>
+                </li>
+                <li class="guide-step">
+                    <strong>Authorize:</strong> When your IDE issues its first tool query, follow the authentication prompt to log in with Central Auth.
+                </li>
+                <li class="guide-step">
+                    <strong>Check Green Status:</strong> Confirm that the MCP server indicator shows an active/connected status.
+                </li>
+            </ol>
+
+            <!-- TODO: screenshot -->
+            <div class="screenshot-placeholder">
+                <p>📸 <em>[Screenshot Placeholder: Cursor / Antigravity MCP settings panel with active server badge]</em></p>
+            </div>
+
+            <p class="guide-disclaimer">
+                Steps may change as the provider updates their product — verify before publishing.
+            </p>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    function switchTab(tabId) {
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+
+        const targetBtn = Array.from(document.querySelectorAll('.tab-btn')).find(b => b.getAttribute('onclick').includes(tabId));
+        if (targetBtn) targetBtn.classList.add('active');
+
+        const targetContent = document.getElementById('tab-' + tabId);
+        if (targetContent) targetContent.classList.add('active');
+    }
+</script>
+{% endblock %}

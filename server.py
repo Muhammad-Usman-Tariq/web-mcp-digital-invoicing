@@ -30,6 +30,8 @@ from tools.reports import (
 )
 from tools.users import add_new_user
 
+from routes.onboarding import router as onboarding_router
+
 # Configure logging
 logging.basicConfig(
     level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
@@ -152,7 +154,7 @@ app.add_middleware(
     jwks_uri=settings.JWKS_URI,
     audience=settings.MCP_AUTH_AUDIENCE,
     revocations_uri=settings.REVOCATIONS_URI,
-    exempt_paths=["/health", "/healthz", "/docs", "/openapi.json"]
+    exempt_paths=["/health", "/healthz", "/docs", "/openapi.json", "/onboarding"]
 )
 
 # 6. Middleware to extract tenant claims into contextvars
@@ -178,7 +180,10 @@ async def health_check():
         "audience": settings.MCP_AUTH_AUDIENCE
     }
 
-# 8. Mount MCP SSE and Streamable HTTP Transports
+# 8. Include Onboarding Web UI Router
+app.include_router(onboarding_router)
+
+# 9. Mount MCP SSE and Streamable HTTP Transports
 sec_settings = TransportSecuritySettings(enable_dns_rebinding_protection=False)
 app.mount("/mcp", mcp.streamable_http_app())
 app.mount("", mcp.sse_app(transport_security=sec_settings))
