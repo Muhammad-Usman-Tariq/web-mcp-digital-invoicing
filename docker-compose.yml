@@ -1,0 +1,21 @@
+services:
+  web-mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: digital-invoice-web
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - PORT=8000
+      - HOST=0.0.0.0
+      - HEADLESS=true
+    shm_size: "1gb"  # Increased shared memory for Chromium stability
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
