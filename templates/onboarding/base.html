@@ -454,11 +454,10 @@
 
         <div class="nav-actions">
             {% if tenant_id %}
-            <span class="tenant-badge" title="Verified Tenant ID: {{ tenant_id }}">
+            <span class="tenant-badge" title="Tenant ID: {{ tenant_id }}">
                 <span class="tenant-dot"></span>
                 <span>{{ tenant_id[:8] }}...{{ tenant_id[-4:] }}</span>
             </span>
-            <a href="/onboarding/logout" class="nav-btn">Log out</a>
             {% endif %}
         </div>
     </header>
