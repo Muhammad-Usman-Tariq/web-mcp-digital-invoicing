@@ -2,7 +2,7 @@ import base64
 from typing import Dict, Any, Optional
 from core.config import settings
 from browser.manager import browser_manager
-from browser.selectors import PortalRoutes, LoginSelectors
+from browser.selectors import PortalRoutes, LoginLocators
 from .base import mcp_tool_handler
 
 @mcp_tool_handler("check_login_status")
@@ -15,29 +15,33 @@ async def check_login_status() -> Dict[str, Any]:
         current_url = page.url
         title = await page.title()
         is_logged_in = "/login" not in current_url.lower()
-        user_menu = await browser_manager.find_element(page, LoginSelectors.LOGGED_IN_INDICATOR, timeout_ms=3000)
         
         return {
             "is_logged_in": is_logged_in,
             "current_url": current_url,
             "page_title": title,
-            "has_user_indicator": bool(user_menu)
+            "is_on_dashboard": "/dashboard" in current_url.lower()
         }
 
 @mcp_tool_handler("navigate_to_section")
 async def navigate_to_section(section: str) -> Dict[str, Any]:
     """
     Navigate directly to a known section of the portal.
-    Supported sections: dashboard, invoices, failed_invoices, draft_invoices, reports, users, settings.
+    Supported sections: dashboard, invoices, failed_invoices, draft_invoices, reports,
+    buyers, users, roles, settings, scenarios_testing, docs.
     """
     section_map = {
         "dashboard": PortalRoutes.DASHBOARD,
         "invoices": PortalRoutes.INVOICES,
-        "failed_invoices": PortalRoutes.FAILED_INVOICES,
-        "draft_invoices": PortalRoutes.DRAFT_INVOICES,
+        "failed_invoices": PortalRoutes.INVOICES_FAILED,
+        "draft_invoices": PortalRoutes.INVOICES_DRAFT,
         "reports": PortalRoutes.REPORTS,
+        "buyers": PortalRoutes.BUYERS,
         "users": PortalRoutes.USERS,
-        "settings": PortalRoutes.SETTINGS
+        "roles": PortalRoutes.ROLES,
+        "settings": PortalRoutes.SETTINGS,
+        "scenarios_testing": PortalRoutes.SCENARIOS_TESTING,
+        "docs": PortalRoutes.DOCS
     }
     
     target_path = section_map.get(section.lower().strip())

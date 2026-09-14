@@ -1,12 +1,13 @@
 import asyncio
 import logging
+import re
 from typing import AsyncGenerator, Optional, List, Dict, Any
 from contextlib import asynccontextmanager
 from playwright.async_api import async_playwright, Playwright, Browser, BrowserContext, Page, Error as PlaywrightError
 from core.config import settings
 from core.context import get_current_tenant_id
 from db.supabase_client import db_service
-from .selectors import PortalRoutes, LoginSelectors
+from .selectors import PortalRoutes, LoginLocators, NavLocators, DashboardLocators
 
 logger = logging.getLogger("digital-invoice-web.browser")
 
@@ -101,29 +102,34 @@ class BrowserManager:
         except Exception as e:
             logger.warning(f"Initial login page navigation reached timeout or partial load: {e}")
 
-        # 1. Locate email input
-        email_sel = await self.find_element(page, LoginSelectors.EMAIL_INPUT, timeout_ms=8000)
-        if not email_sel:
+        # 1. Locate email input via confirmed placeholder
+        email_loc = page.get_by_placeholder(LoginLocators.EMAIL_INPUT_PLACEHOLDER)
+        if not await email_loc.is_visible(timeout=4000):
+            # Fallback to type=email or role
+            email_loc = page.locator("input[type='email']").first
+        if not await email_loc.is_visible(timeout=3000):
             raise ElementNotFoundError(
-                f"Could not locate login email input on {login_url}. Candidate selectors: {LoginSelectors.EMAIL_INPUT}"
+                f"Could not locate login email input on {login_url}. Expected placeholder: '{LoginLocators.EMAIL_INPUT_PLACEHOLDER}'"
             )
-        await page.fill(email_sel, credentials["email"])
+        await email_loc.fill(credentials["email"])
 
-        # 2. Locate password input
-        pw_sel = await self.find_element(page, LoginSelectors.PASSWORD_INPUT, timeout_ms=5000)
-        if not pw_sel:
+        # 2. Locate password input via confirmed placeholder substring
+        pw_loc = page.get_by_placeholder(re.compile(LoginLocators.PASSWORD_INPUT_PLACEHOLDER, re.IGNORECASE))
+        if not await pw_loc.is_visible(timeout=4000):
+            # Fallback to type=password
+            pw_loc = page.locator("input[type='password']").first
+        if not await pw_loc.is_visible(timeout=3000):
             raise ElementNotFoundError(
-                f"Could not locate login password input on {login_url}. Candidate selectors: {LoginSelectors.PASSWORD_INPUT}"
+                f"Could not locate login password input on {login_url}. Expected placeholder starting with '{LoginLocators.PASSWORD_INPUT_PLACEHOLDER}'"
             )
-        await page.fill(pw_sel, credentials["password"])
+        await pw_loc.fill(credentials["password"])
 
-        # 3. Submit form
-        submit_sel = await self.find_element(page, LoginSelectors.SUBMIT_BUTTON, timeout_ms=5000)
-        if not submit_sel:
-            # Fallback to pressing Enter
-            await page.keyboard.press("Enter")
+        # 3. Submit form via confirmed role=button, name='Login'
+        submit_btn = page.get_by_role("button", name=LoginLocators.SUBMIT_BUTTON_TEXT)
+        if await submit_btn.is_visible(timeout=3000):
+            await submit_btn.click()
         else:
-            await page.click(submit_sel)
+            await page.keyboard.press("Enter")
 
         # 4. Wait for navigation or error
         try:
@@ -132,20 +138,17 @@ class BrowserManager:
             pass
 
         # Check for visible error message on the page
-        err_sel = await self.find_element(page, LoginSelectors.LOGIN_ERROR_MESSAGE, timeout_ms=2000)
-        if err_sel:
-            err_text = await page.locator(err_sel).first.inner_text()
+        err_locator = page.locator("[role='alert'], .alert-danger, .error-message, .toast-error").first
+        if await err_locator.is_visible(timeout=2000):
+            err_text = await err_locator.inner_text()
             raise TenantAuthError(f"Login rejected by portal: {err_text.strip()}")
 
-        # Verify we navigated away from /login
+        # Verify post-login redirect (target: /dashboard)
         current_url = page.url
         if "/login" in current_url.lower():
-            # Check if logged in indicator is present despite URL
-            indicator = await self.find_element(page, LoginSelectors.LOGGED_IN_INDICATOR, timeout_ms=3000)
-            if not indicator:
-                raise TenantAuthError(
-                    f"Authentication failed: Page remained at {current_url} after submitting credentials."
-                )
+            raise TenantAuthError(
+                f"Authentication failed: Page remained at {current_url} after submitting credentials."
+            )
 
         logger.info(f"Login successful for tenant {tenant_id}. Persisting storage_state...")
         storage_state = await context.storage_state()

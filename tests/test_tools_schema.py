@@ -34,3 +34,18 @@ async def test_tool_fails_cleanly_without_tenant():
     assert result["success"] is False
     assert result["error_type"] == "UnauthorizedError"
     assert "No tenant_id resolved" in result["error"]
+
+@pytest.mark.asyncio
+async def test_duplicate_invoice_reports_feature_not_supported():
+    from tools.invoices import duplicate_invoice
+    set_current_auth_claims({"tenant_id": "test-tenant-123"})
+    res = await duplicate_invoice(invoice_id="INV-999")
+    assert res["success"] is False
+    assert res["error_type"] == "NotImplementedError"
+    assert "not supported in the portal UI" in res["error"]
+    clear_context()
+
+def test_calendar_date_formatter():
+    from tools.reports import _format_calendar_date
+    assert _format_calendar_date("2026-09-07") == "7 September 2026"
+    assert _format_calendar_date("2026-09-14") == "14 September 2026"

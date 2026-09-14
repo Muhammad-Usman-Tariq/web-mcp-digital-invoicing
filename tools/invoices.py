@@ -1,53 +1,75 @@
+import re
 import logging
 from typing import Dict, Any, List, Optional
 from core.config import settings
 from browser.manager import browser_manager, ElementNotFoundError
-from browser.selectors import PortalRoutes, InvoiceSelectors
+from browser.selectors import (
+    PortalRoutes,
+    InvoiceListLocators,
+    InvoiceStudioLocators
+)
 from .base import mcp_tool_handler
 
 logger = logging.getLogger("digital-invoice-web.tools.invoices")
 
 @mcp_tool_handler("get_failed_invoices_details")
-async def get_failed_invoices_details(limit: int = 50) -> Dict[str, Any]:
+async def get_failed_invoices_details(limit: int = 50, fetch_reasons: bool = False) -> Dict[str, Any]:
     """
-    Extracts a structured list of failed invoices with specific failure reasons directly from the UI.
-    Navigates to the failed invoices section and parses table columns into JSON.
+    Extracts structured list of failed invoices directly from the UI.
+    Navigates to /invoices?status=failed,validation_failed and parses the verified table columns:
+    [Sr #, Invoice ID, Date, Type, Buyer, Invoice Amount, Status, Actions].
+    If fetch_reasons=True, opens 'View Details' on each row to extract specific failure error messages.
     """
-    failed_url = f"{settings.PORTAL_BASE_URL.rstrip('/')}{PortalRoutes.FAILED_INVOICES}"
+    failed_url = f"{settings.PORTAL_BASE_URL.rstrip('/')}{PortalRoutes.INVOICES_FAILED}"
     async with browser_manager.get_tenant_page() as page:
         await page.goto(failed_url, wait_until="networkidle", timeout=settings.NAVIGATION_TIMEOUT_MS)
 
-        table_sel = await browser_manager.find_element(page, InvoiceSelectors.TABLE, timeout_ms=5000)
-        if not table_sel:
-            # Check if there is an empty state notice
+        # Look for table
+        table = page.locator("table").first
+        if not await table.is_visible(timeout=5000):
             page_text = (await page.inner_text("body")).lower()
-            if "no failed" in page_text or "no records" in page_text or "0 invoices" in page_text:
+            if "no invoice" in page_text or "no records" in page_text or "0 invoices" in page_text:
                 return {
                     "total_failed": 0,
                     "invoices": [],
                     "message": "No failed invoices found on portal."
                 }
-            raise ElementNotFoundError(f"Could not locate invoice table on {page.url}")
+            raise ElementNotFoundError(f"Invoices table not found on {page.url}")
 
-        # Parse table headers
-        headers: List[str] = []
-        header_els = await page.locator(f"{table_sel} th").all()
-        for h in header_els:
-            headers.append((await h.inner_text()).strip().lower())
-
-        # Parse rows
-        row_els = await page.locator(f"{table_sel} tbody tr").all()
+        headers = InvoiceListLocators.TABLE_COLUMNS
+        row_els = await page.locator("table tbody tr").all()
         failed_invoices: List[Dict[str, Any]] = []
 
         for row in row_els[:limit]:
             cols = await row.locator("td").all()
-            if not cols:
+            if not cols or len(cols) < 2:
                 continue
             row_data: Dict[str, Any] = {}
             for i, col in enumerate(cols):
                 col_text = (await col.inner_text()).strip()
-                col_key = headers[i] if i < len(headers) and headers[i] else f"col_{i+1}"
-                row_data[col_key] = col_text
+                col_key = headers[i] if i < len(headers) else f"col_{i+1}"
+                if col_key != "Actions":
+                    row_data[col_key] = col_text
+
+            # If requested, inspect specific failure reason via View Details
+            if fetch_reasons:
+                try:
+                    actions_btn = row.get_by_role("button", name=InvoiceListLocators.ROW_ACTIONS_BUTTON_TEXT).first
+                    if await actions_btn.is_visible(timeout=1500):
+                        await actions_btn.click()
+                        await page.wait_for_timeout(200)
+                        view_opt = page.get_by_text(InvoiceListLocators.ACTION_MENU_VIEW_DETAILS, exact=True).first
+                        if await view_opt.is_visible(timeout=1500):
+                            await view_opt.click()
+                            await page.wait_for_timeout(400)
+                            # Look for dialog/drawer error text
+                            dialog = page.locator("[role='dialog'], [role='alert'], .modal").first
+                            if await dialog.is_visible(timeout=2000):
+                                dialog_text = await dialog.inner_text()
+                                row_data["failure_reason"] = dialog_text.strip()
+                            await page.keyboard.press("Escape")
+                except Exception as e:
+                    logger.debug(f"Could not fetch details for row: {e}")
 
             failed_invoices.append(row_data)
 
@@ -63,66 +85,75 @@ async def bulk_validate_invoices(
     select_all: bool = False
 ) -> Dict[str, Any]:
     """
-    Selects invoices via checkboxes in the UI and triggers the bulk validate action.
-    Can validate all visible invoices or a specific list of invoice IDs.
+    Validates multiple invoices sequentially using the verified per-row Actions -> Validate menu flow.
+    (Note: The live UI has no bulk-checkboxes; validation is triggered per-row in a reliable loop).
     """
     invoices_url = f"{settings.PORTAL_BASE_URL.rstrip('/')}{PortalRoutes.INVOICES}"
     async with browser_manager.get_tenant_page() as page:
         await page.goto(invoices_url, wait_until="networkidle", timeout=settings.NAVIGATION_TIMEOUT_MS)
 
-        selected_count = 0
+        rows = await page.locator("table tbody tr").all()
+        if not rows:
+            return {
+                "validated_count": 0,
+                "invoices_validated": [],
+                "message": "No invoices present in table."
+            }
+
+        validated_invoices: List[str] = []
+        errors: List[Dict[str, str]] = []
+
+        # Determine target rows
+        targets: List[Any] = []
         if select_all:
-            # Click master checkbox if available
-            master_checkbox = page.locator("thead input[type='checkbox']").first
-            if await master_checkbox.is_visible(timeout=2000):
-                await master_checkbox.check()
-                selected_count = await page.locator("tbody input[type='checkbox']:checked").count()
-            else:
-                # Check each row checkbox
-                boxes = await page.locator("tbody input[type='checkbox']").all()
-                for box in boxes:
-                    await box.check()
-                    selected_count += 1
+            targets = rows
         elif invoice_ids:
-            # Check rows matching specified IDs
             for inv_id in invoice_ids:
-                row_locator = page.locator(f"tr:has-text('{inv_id}')")
-                if await row_locator.count() > 0:
-                    checkbox = row_locator.locator("input[type='checkbox']").first
-                    if await checkbox.is_visible(timeout=1000):
-                        await checkbox.check()
-                        selected_count += 1
+                row_match = page.locator(f"table tbody tr:has-text('{inv_id}')").first
+                if await row_match.is_visible(timeout=1500):
+                    targets.append(row_match)
+                else:
+                    errors.append({"invoice_id": inv_id, "error": "Invoice row not found on page"})
         else:
             raise ValueError("Must specify either invoice_ids list or select_all=True.")
 
-        if selected_count == 0:
-            return {
-                "success": False,
-                "validated_count": 0,
-                "message": "No matching invoices found to select for validation."
-            }
+        for row in targets:
+            try:
+                row_text = await row.inner_text()
+                # Find Actions button in this specific row
+                actions_btn = row.get_by_role("button", name=InvoiceListLocators.ROW_ACTIONS_BUTTON_TEXT).first
+                if not await actions_btn.is_visible(timeout=2000):
+                    actions_btn = row.locator("button:has-text('Actions')").first
 
-        # Click bulk validate button
-        btn_sel = await browser_manager.find_element(page, InvoiceSelectors.BULK_VALIDATE_BUTTON, timeout_ms=3000)
-        if not btn_sel:
-            raise ElementNotFoundError("Bulk Validate button not found on invoices page.")
+                if not await actions_btn.is_visible(timeout=2000):
+                    continue
 
-        await page.click(btn_sel)
-        # Handle confirmation dialog if triggered
-        try:
-            confirm_btn = page.locator("button:has-text('Confirm'), button:has-text('Yes'), .swal2-confirm").first
-            if await confirm_btn.is_visible(timeout=2000):
-                await confirm_btn.click()
-        except Exception:
-            pass
+                await actions_btn.click()
+                await page.wait_for_timeout(300)
 
-        await page.wait_for_load_state("networkidle", timeout=settings.NAVIGATION_TIMEOUT_MS)
+                # Click Validate from the dropdown menu
+                validate_opt = page.get_by_text(InvoiceListLocators.ACTION_MENU_VALIDATE, exact=True).first
+                if await validate_opt.is_visible(timeout=2000):
+                    await validate_opt.click()
+                    # Handle any confirmation modal
+                    confirm_btn = page.locator("button:has-text('Confirm'), button:has-text('Yes'), .swal2-confirm").first
+                    if await confirm_btn.is_visible(timeout=1000):
+                        await confirm_btn.click()
+                    
+                    await page.wait_for_timeout(500)
+                    validated_invoices.append(row_text.split()[1] if len(row_text.split()) > 1 else "invoice")
+                else:
+                    # Close menu if validate option not available
+                    await page.keyboard.press("Escape")
+            except Exception as e:
+                logger.warning(f"Error validating row: {e}")
+                errors.append({"error": str(e)})
 
         return {
-            "selected_count": selected_count,
-            "status": "validation_triggered",
-            "message": f"Bulk validation triggered for {selected_count} invoices.",
-            "current_url": page.url
+            "validated_count": len(validated_invoices),
+            "invoices_validated": validated_invoices,
+            "errors": errors,
+            "message": f"Successfully triggered validation on {len(validated_invoices)} invoices."
         }
 
 @mcp_tool_handler("edit_draft_invoice_field")
@@ -132,48 +163,66 @@ async def edit_draft_invoice_field(
     new_value: str
 ) -> Dict[str, Any]:
     """
-    Locates a draft invoice by ID, navigates to its edit form, updates the specified field, and saves.
+    Locates a draft invoice by ID, opens Invoice Studio via Actions -> Edit Invoice,
+    updates the specified field, and saves changes.
     """
-    draft_url = f"{settings.PORTAL_BASE_URL.rstrip('/')}{PortalRoutes.DRAFT_INVOICES}"
+    drafts_url = f"{settings.PORTAL_BASE_URL.rstrip('/')}{PortalRoutes.INVOICES_DRAFT}"
     async with browser_manager.get_tenant_page() as page:
-        await page.goto(draft_url, wait_until="networkidle", timeout=settings.NAVIGATION_TIMEOUT_MS)
+        await page.goto(drafts_url, wait_until="networkidle", timeout=settings.NAVIGATION_TIMEOUT_MS)
 
         # Locate row with invoice_id
-        row = page.locator(f"tr:has-text('{invoice_id}')").first
+        row = page.locator(f"table tbody tr:has-text('{invoice_id}')").first
         if not await row.is_visible(timeout=4000):
-            raise ElementNotFoundError(f"Draft invoice '{invoice_id}' not found in draft list.")
+            raise ElementNotFoundError(f"Invoice '{invoice_id}' not found in draft list.")
 
-        # Click Edit action
-        edit_btn = row.locator("button:has-text('Edit'), a:has-text('Edit'), [title='Edit']").first
-        if await edit_btn.is_visible(timeout=2000):
-            await edit_btn.click()
-        else:
-            # Try clicking the row link directly
-            link = row.locator("a").first
-            await link.click()
+        # Click Actions button
+        actions_btn = row.get_by_role("button", name=InvoiceListLocators.ROW_ACTIONS_BUTTON_TEXT).first
+        if not await actions_btn.is_visible(timeout=2000):
+            actions_btn = row.locator("button:has-text('Actions')").first
+        await actions_btn.click()
+        await page.wait_for_timeout(300)
+
+        # Click Edit Invoice
+        edit_opt = page.get_by_text(InvoiceListLocators.ACTION_MENU_EDIT_INVOICE, exact=True).first
+        if not await edit_opt.is_visible(timeout=2000):
+            raise ElementNotFoundError(f"Edit Invoice action not available for invoice '{invoice_id}'.")
+        await edit_opt.click()
 
         await page.wait_for_load_state("networkidle", timeout=settings.NAVIGATION_TIMEOUT_MS)
 
-        # Target input field by name, id, or placeholder
-        field_candidates = [
-            f"input[name='{field_name}']",
-            f"textarea[name='{field_name}']",
-            f"#{field_name}",
-            f"input[placeholder*='{field_name}' i]",
-            f"input[data-field='{field_name}']"
-        ]
-        matched_sel = await browser_manager.find_element(page, field_candidates, timeout_ms=5000)
-        if not matched_sel:
+        # Locate target field using verified placeholder / input mapping
+        field_lower = field_name.lower().strip()
+        input_target = None
+
+        if "ref" in field_lower:
+            input_target = page.get_by_placeholder(InvoiceStudioLocators.REFERENCE_NO_INPUT_PLACEHOLDER).first
+        elif "po" in field_lower:
+            input_target = page.get_by_placeholder(InvoiceStudioLocators.PO_NUMBER_INPUT_PLACEHOLDER).first
+        elif "miv" in field_lower:
+            input_target = page.get_by_placeholder(re.compile(r"MIV", re.I)).first
+        elif "vendor" in field_lower:
+            input_target = page.get_by_placeholder(re.compile(r"vendor", re.I)).first
+        elif "dc" in field_lower or "challan" in field_lower or "delivery" in field_lower:
+            input_target = page.get_by_placeholder(re.compile(r"(delivery|challan|DC)", re.I)).first
+        elif "date" in field_lower:
+            input_target = page.locator(InvoiceStudioLocators.INVOICE_DATE_INPUT).first
+        else:
+            # Try by placeholder substring or name attribute
+            input_target = page.get_by_placeholder(re.compile(field_name, re.I)).first
+            if not await input_target.is_visible(timeout=1000):
+                input_target = page.locator(f"input[name='{field_name}']").first
+
+        if not input_target or not await input_target.is_visible(timeout=3000):
             raise ElementNotFoundError(
-                f"Field '{field_name}' not found on draft invoice edit form. Tested candidates: {field_candidates}"
+                f"Field '{field_name}' not found in Invoice Studio. Known fields: reference, po, miv, vendor, dc/challan, date."
             )
 
-        await page.fill(matched_sel, new_value)
+        await input_target.fill(new_value)
 
-        # Click save button
-        save_sel = await browser_manager.find_element(page, InvoiceSelectors.SAVE_INVOICE_BUTTON, timeout_ms=3000)
-        if save_sel:
-            await page.click(save_sel)
+        # Click Save button
+        save_btn = page.get_by_role("button", name=InvoiceStudioLocators.SAVE_BUTTON[1]).first
+        if await save_btn.is_visible(timeout=2000):
+            await save_btn.click()
         else:
             await page.keyboard.press("Enter")
 
@@ -190,34 +239,12 @@ async def edit_draft_invoice_field(
 @mcp_tool_handler("duplicate_invoice")
 async def duplicate_invoice(invoice_id: str) -> Dict[str, Any]:
     """
-    Locates an invoice by ID in the invoices list and triggers the UI duplicate action.
+    Locates an invoice by ID in the UI and checks for duplicate capabilities.
+    NOTE: Live inspection confirmed the Actions menu ONLY supports [View Details, Edit Invoice,
+    Delete Invoice, Validate]. No 'Duplicate' feature exists in the portal UI.
     """
-    invoices_url = f"{settings.PORTAL_BASE_URL.rstrip('/')}{PortalRoutes.INVOICES}"
-    async with browser_manager.get_tenant_page() as page:
-        await page.goto(invoices_url, wait_until="networkidle", timeout=settings.NAVIGATION_TIMEOUT_MS)
-
-        row = page.locator(f"tr:has-text('{invoice_id}')").first
-        if not await row.is_visible(timeout=4000):
-            raise ElementNotFoundError(f"Invoice '{invoice_id}' not found in invoices list.")
-
-        # Click Duplicate action
-        dup_btn = row.locator("button:has-text('Duplicate'), a:has-text('Duplicate'), [title='Duplicate'], [aria-label='Duplicate']").first
-        if not await dup_btn.is_visible(timeout=2000):
-            # Try action menu dropdown
-            menu_btn = row.locator(".dropdown-toggle, button[aria-haspopup='true'], .actions-btn").first
-            if await menu_btn.is_visible(timeout=1000):
-                await menu_btn.click()
-                dup_btn = page.locator("button:has-text('Duplicate'), a:has-text('Duplicate')").first
-
-        if not await dup_btn.is_visible(timeout=2000):
-            raise ElementNotFoundError(f"Duplicate action not found for invoice '{invoice_id}'.")
-
-        await dup_btn.click()
-        await page.wait_for_load_state("networkidle", timeout=settings.NAVIGATION_TIMEOUT_MS)
-
-        return {
-            "source_invoice_id": invoice_id,
-            "status": "duplicated",
-            "new_page_url": page.url,
-            "page_title": await page.title()
-        }
+    # Live inspection on 2026-09-14 confirmed no Duplicate action exists in the portal UI.
+    raise NotImplementedError(
+        f"Duplicate action is not supported in the portal UI for invoice '{invoice_id}'. "
+        "The verified Actions menu only contains: View Details, Edit Invoice, Delete Invoice, and Validate."
+    )

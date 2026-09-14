@@ -73,9 +73,9 @@ async def tool_get_dashboard_snapshot():
     return await get_dashboard_snapshot()
 
 @mcp.tool()
-async def tool_get_failed_invoices_details(limit: int = 50):
-    """Scrape the list of failed invoices with specific failure reasons directly from the UI."""
-    return await get_failed_invoices_details(limit=limit)
+async def tool_get_failed_invoices_details(limit: int = 50, fetch_reasons: bool = False):
+    """Scrape the list of failed invoices directly from the UI, optionally opening View Details for exact errors."""
+    return await get_failed_invoices_details(limit=limit, fetch_reasons=fetch_reasons)
 
 @mcp.tool()
 async def tool_filter_report_by_date_range(from_date: str, to_date: str, report_type: Optional[str] = None):
@@ -94,9 +94,23 @@ async def tool_edit_draft_invoice_field(invoice_id: str, field_name: str, new_va
     return await edit_draft_invoice_field(invoice_id=invoice_id, field_name=field_name, new_value=new_value)
 
 @mcp.tool()
-async def tool_add_new_user(name: str, email: str, role: str = "User"):
-    """Fill the Add User form on the portal user management screen and confirm creation."""
-    return await add_new_user(name=name, email=email, role=role)
+async def tool_add_new_user(
+    full_name: str,
+    email: str,
+    username: Optional[str] = None,
+    password: Optional[str] = None,
+    company: Optional[str] = None,
+    role: str = "Company Admin"
+):
+    """Fill the Add User modal on /users with full name, email, credentials, company, and role."""
+    return await add_new_user(
+        full_name=full_name,
+        email=email,
+        username=username,
+        password=password,
+        company=company,
+        role=role
+    )
 
 # --- Low Priority Tools ---
 @mcp.tool()
