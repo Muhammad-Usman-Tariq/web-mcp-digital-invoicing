@@ -2,7 +2,6 @@ import logging
 from contextlib import asynccontextmanager
 from typing import List, Optional
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
 from mcp.server.mcpserver import MCPServer
 from mcp.server.sse import TransportSecuritySettings
 

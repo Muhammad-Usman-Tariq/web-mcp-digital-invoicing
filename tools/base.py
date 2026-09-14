@@ -1,7 +1,7 @@
 import time
 import functools
 import logging
-from typing import Callable, Any, Dict, Optional
+from typing import Callable, Any, Dict
 from core.context import get_current_tenant_id
 from db.supabase_client import db_service
 
@@ -21,8 +21,6 @@ def mcp_tool_handler(tool_name: str):
         async def wrapper(*args, **kwargs) -> Dict[str, Any]:
             start_time = time.time()
             tenant_id = get_current_tenant_id()
-            status = "success"
-            error_detail = None
 
             if not tenant_id:
                 duration_ms = int((time.time() - start_time) * 1000)
@@ -46,7 +44,6 @@ def mcp_tool_handler(tool_name: str):
                     "duration_ms": duration_ms
                 }
             except Exception as e:
-                status = "error"
                 duration_ms = int((time.time() - start_time) * 1000)
                 error_type = type(e).__name__
                 error_detail = str(e)

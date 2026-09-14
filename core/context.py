@@ -1,5 +1,5 @@
 from contextvars import ContextVar
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 # Asyncio-safe context variables
 _current_tenant_id: ContextVar[str] = ContextVar("current_tenant_id", default="")

@@ -1,13 +1,13 @@
 import asyncio
 import logging
 import re
-from typing import AsyncGenerator, Optional, List, Dict, Any
+from typing import AsyncGenerator, Optional, List
 from contextlib import asynccontextmanager
-from playwright.async_api import async_playwright, Playwright, Browser, BrowserContext, Page, Error as PlaywrightError
+from playwright.async_api import async_playwright, Playwright, Browser, BrowserContext, Page
 from core.config import settings
 from core.context import get_current_tenant_id
 from db.supabase_client import db_service
-from .selectors import PortalRoutes, LoginLocators, NavLocators, DashboardLocators
+from .selectors import PortalRoutes, LoginLocators
 
 logger = logging.getLogger("digital-invoice-web.browser")
 

@@ -1,8 +1,8 @@
 import base64
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from core.config import settings
 from browser.manager import browser_manager
-from browser.selectors import PortalRoutes, LoginLocators
+from browser.selectors import PortalRoutes
 from .base import mcp_tool_handler
 
 @mcp_tool_handler("check_login_status")
