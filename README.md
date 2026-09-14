@@ -29,8 +29,17 @@ This server sits behind the Central Auth server and verifies incoming JWT tokens
 
 ## 3. Required Environment Variables
 
-Copy `.env.example` to `.env` and configure:
+Copy `.env.sample` to `.env` and fill in every blank value before running — the server will refuse to start otherwise.
 
+*(Reference illustrative values can be inspected in `.env.example`).*
+
+Security-critical settings have **no silent defaults**; the server will fail fast at startup if any of these are missing, empty, or using placeholder values:
+- `MCP_AUTH_AUDIENCE` — Must match exact audience registered in Central Auth.
+- `SUPABASE_URL` — Supabase project API URL.
+- `SUPABASE_SERVICE_ROLE_KEY` — Supabase backend service role key.
+- `ENCRYPTION_MASTER_KEY` — 32-byte AES key generated via `python scripts/generate_master_key.py`.
+
+Template (`.env.sample`):
 ```bash
 # Server & Port
 HOST=0.0.0.0
@@ -108,10 +117,14 @@ source .venv/bin/activate  # Or on Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 playwright install --with-deps chromium
 
-# 3. Run automated tests
+# 3. Configure environment
+# Copy .env.sample to .env and fill in every blank value before running — the server will refuse to start otherwise
+cp .env.sample .env
+
+# 4. Run automated tests
 python -m pytest -v tests
 
-# 4. Start local server
+# 5. Start local server
 python main.py
 ```
 

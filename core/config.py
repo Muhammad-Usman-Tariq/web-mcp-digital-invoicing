@@ -1,15 +1,18 @@
-import os
-from typing import Optional
-from pydantic import Field
+import sys
+import logging
+from typing import Optional, List
+from pydantic import Field, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from dotenv import load_dotenv
 
 load_dotenv()
 
+logger = logging.getLogger("digital-invoice-web.config")
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    # Server settings
+    # Server settings (safe universal defaults)
     HOST: str = Field(default="0.0.0.0", description="Server bind host")
     PORT: int = Field(default=8000, description="Server bind port")
     LOG_LEVEL: str = Field(default="INFO", description="Logging level")
@@ -20,35 +23,31 @@ class Settings(BaseSettings):
         description="Central Auth JWKS endpoint"
     )
     MCP_AUTH_AUDIENCE: str = Field(
-        default="digital-invoice-web",
-        description="Expected audience for digital-invoice-web tokens"
+        description="Expected audience for this MCP server's tokens — must be pasted exactly from Central Auth registration. No default: server must fail to start if this is not set."
     )
     REVOCATIONS_URI: Optional[str] = Field(
         default=None,
         description="Optional Central Auth revocation endpoint"
     )
 
-    # Supabase Settings
+    # Supabase Settings (No defaults: required)
     SUPABASE_URL: str = Field(
-        default="",
-        description="Supabase project URL"
+        description="Supabase project URL — must be pasted from Supabase settings. No default: server must fail to start if this is not set."
     )
     SUPABASE_SERVICE_ROLE_KEY: str = Field(
-        default="",
-        description="Supabase service role key (bypasses RLS server-side)"
+        description="Supabase service role key — must be pasted from Supabase settings. No default: server must fail to start if this is not set."
     )
 
-    # Cryptography
+    # Cryptography (No default: required)
     ENCRYPTION_MASTER_KEY: str = Field(
-        default="",
-        description="32-byte hex/base64 encoded master key for AES-256-GCM"
+        description="32-byte hex/base64 master encryption key — generate via scripts/generate_master_key.py. No default: server must fail to start if this is not set."
     )
     CURRENT_KEY_VERSION: int = Field(
         default=1,
         description="Current encryption key version for rotation"
     )
 
-    # Browser Automation Settings
+    # Browser Automation Settings (safe defaults)
     PORTAL_BASE_URL: str = Field(
         default="https://www.digitalinvoicingsoftware.com",
         description="Base URL of Digital Invoicing portal"
@@ -74,4 +73,65 @@ class Settings(BaseSettings):
         description="Storage state cache expiry in hours"
     )
 
-settings = Settings()
+def validate_critical_settings(s: Settings) -> List[str]:
+    """
+    Validate that security-critical settings are neither missing, empty, nor using obvious placeholder values.
+    Returns a list of FATAL error messages.
+    """
+    errors: List[str] = []
+
+    # Check MCP_AUTH_AUDIENCE
+    if not s.MCP_AUTH_AUDIENCE or not s.MCP_AUTH_AUDIENCE.strip():
+        errors.append(
+            "FATAL: MCP_AUTH_AUDIENCE is not set. Copy .env.sample to .env and paste the exact audience value from the Central Auth admin panel before starting this server."
+        )
+
+    # Check SUPABASE_URL
+    if not s.SUPABASE_URL or not s.SUPABASE_URL.strip() or "your-supabase-project" in s.SUPABASE_URL:
+        errors.append(
+            "FATAL: SUPABASE_URL is not set. Copy .env.sample to .env and paste the Supabase project URL before starting this server."
+        )
+
+    # Check SUPABASE_SERVICE_ROLE_KEY
+    if not s.SUPABASE_SERVICE_ROLE_KEY or not s.SUPABASE_SERVICE_ROLE_KEY.strip() or s.SUPABASE_SERVICE_ROLE_KEY == "your-supabase-service-role-key":
+        errors.append(
+            "FATAL: SUPABASE_SERVICE_ROLE_KEY is not set. Copy .env.sample to .env and paste the Supabase service role key before starting this server."
+        )
+
+    # Check ENCRYPTION_MASTER_KEY
+    if not s.ENCRYPTION_MASTER_KEY or not s.ENCRYPTION_MASTER_KEY.strip():
+        errors.append(
+            "FATAL: ENCRYPTION_MASTER_KEY is not set. Copy .env.sample to .env and generate a master key via 'python scripts/generate_master_key.py' before starting this server."
+        )
+    elif s.ENCRYPTION_MASTER_KEY == "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef":
+        errors.append(
+            "FATAL: ENCRYPTION_MASTER_KEY is using the illustrative example key from .env.example. Generate a unique key via 'python scripts/generate_master_key.py'."
+        )
+
+    return errors
+
+# Initialize settings instance; if Pydantic validation fails, log clear fatal messages before re-raising
+try:
+    settings = Settings()
+except ValidationError as e:
+    missing_locs = {err["loc"][0] for err in e.errors()}
+    fatal_msgs: List[str] = []
+    if "MCP_AUTH_AUDIENCE" in missing_locs:
+        fatal_msgs.append(
+            "FATAL: MCP_AUTH_AUDIENCE is not set. Copy .env.sample to .env and paste the exact audience value from the Central Auth admin panel before starting this server."
+        )
+    if "SUPABASE_URL" in missing_locs:
+        fatal_msgs.append(
+            "FATAL: SUPABASE_URL is not set. Copy .env.sample to .env and paste the Supabase project URL before starting this server."
+        )
+    if "SUPABASE_SERVICE_ROLE_KEY" in missing_locs:
+        fatal_msgs.append(
+            "FATAL: SUPABASE_SERVICE_ROLE_KEY is not set. Copy .env.sample to .env and paste the Supabase service role key before starting this server."
+        )
+    if "ENCRYPTION_MASTER_KEY" in missing_locs:
+        fatal_msgs.append(
+            "FATAL: ENCRYPTION_MASTER_KEY is not set. Copy .env.sample to .env and generate a master key via 'python scripts/generate_master_key.py' before starting this server."
+        )
+    for msg in fatal_msgs:
+        print(msg, file=sys.stderr)
+    raise

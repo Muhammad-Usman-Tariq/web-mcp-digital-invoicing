@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 from mcp.server.mcpserver import MCPServer
 from mcp.server.sse import TransportSecuritySettings
 
-from core.config import settings
+from core.config import settings, validate_critical_settings
 from core.context import set_current_auth_claims, clear_context
 from sdk.python.mcp_auth_middleware import McpAuthMiddleware
 from browser.manager import browser_manager
@@ -112,6 +112,13 @@ async def tool_export_report_view(export_format: str = "csv"):
 # 3. Lifespan for FastAPI
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Explicit startup validation: fail fast with clear actionable error messages
+    validation_errors = validate_critical_settings(settings)
+    if validation_errors:
+        for err in validation_errors:
+            logger.critical(err)
+        raise RuntimeError("\n".join(validation_errors))
+
     logger.info("Initializing Playwright browser pool on server startup...")
     await browser_manager.start()
     yield
