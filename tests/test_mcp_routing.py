@@ -559,3 +559,94 @@ async def test_sse_cleanup_on_disconnect_makes_session_stale(mcp_test_client):
         assert res.status_code == 401
         assert res.json() == expected_body
 
+@pytest.mark.asyncio
+async def test_sse_concurrent_connect_race_condition_regression():
+    """
+    Regression test for the connect_sse session_id capture race condition:
+    Patches transport's _security.validate_request to await asyncio.sleep(...)
+    for the first of two concurrent connect calls, runs two concurrent
+    /sse/{url_token} connections for two different tenants, and asserts both
+    end up in _sse_session_tenants with their CORRECT tenant_id.
+    """
+    url_tokens = {
+        "token-tenant-concurrent-1": "tenant-concurrent-1-uuid",
+        "token-tenant-concurrent-2": "tenant-concurrent-2-uuid"
+    }
+
+    async def mock_lookup(token):
+        return url_tokens.get(token)
+
+    call_count = 0
+    orig_validate = sse_transport._security.validate_request
+    async def delayed_validate(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        current = call_count
+        if current == 1:
+            # Inject delay during first connection's validate_request
+            await asyncio.sleep(0.05)
+        return await orig_validate(*args, **kwargs)
+
+    mock_claims = {"sub": "user_1", "aud": "digital-invoice-web", "tenant_id": "claims-tid"}
+    with patch("jwt.PyJWKClient.get_signing_key_from_jwt", return_value=MagicMock(key="fake-key")), \
+         patch("jwt.decode", return_value=mock_claims), \
+         patch("server.db_service.get_tenant_id_by_url_token", side_effect=mock_lookup), \
+         patch.object(sse_transport._security, "validate_request", side_effect=delayed_validate):
+
+        async def connect(token):
+            scope = {
+                "type": "http",
+                "method": "GET",
+                "path": f"/sse/{token}",
+                "raw_path": f"/sse/{token}".encode(),
+                "query_string": b"",
+                "headers": [
+                    (b"authorization", b"Bearer test-valid-token"),
+                    (b"host", b"testserver"),
+                ]
+            }
+            async def rec():
+                await asyncio.Event().wait()
+                return {"type": "http.disconnect"}
+            async def snd(msg):
+                pass
+            return asyncio.create_task(app(scope, rec, snd))
+
+        task1 = await connect("token-tenant-concurrent-1")
+        # Start task2 while task1 is sleeping in validate_request
+        await asyncio.sleep(0.01)
+        task2 = await connect("token-tenant-concurrent-2")
+
+        try:
+            # Wait until both sessions are registered
+            for _ in range(30):
+                await asyncio.sleep(0.01)
+                has_1 = any(t == "tenant-concurrent-1-uuid" for t in _sse_session_tenants.values())
+                has_2 = any(t == "tenant-concurrent-2-uuid" for t in _sse_session_tenants.values())
+                if has_1 and has_2:
+                    break
+
+            # Both tenants must be present and mapped to different sessions
+            tenants_in_map = set(_sse_session_tenants.values())
+            assert "tenant-concurrent-1-uuid" in tenants_in_map
+            assert "tenant-concurrent-2-uuid" in tenants_in_map
+
+            # Confirm mapping is distinct and isolated
+            s1 = [s for s, t in _sse_session_tenants.items() if t == "tenant-concurrent-1-uuid"]
+            s2 = [s for s, t in _sse_session_tenants.items() if t == "tenant-concurrent-2-uuid"]
+            assert len(s1) == 1
+            assert len(s2) == 1
+            assert s1[0] != s2[0]
+        finally:
+            task1.cancel()
+            task2.cancel()
+            try:
+                await task1
+            except (asyncio.CancelledError, BaseException):
+                pass
+            try:
+                await task2
+            except (asyncio.CancelledError, BaseException):
+                pass
+
+

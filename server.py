@@ -1,3 +1,5 @@
+import asyncio
+import sys
 import logging
 from contextlib import asynccontextmanager
 from typing import List, Optional, Dict
@@ -265,23 +267,43 @@ class TenantAwareSseServerTransport(SseServerTransport):
     SseServerTransport subclass that intercepts session_id generated inside connect_sse
     and records session_id -> tenant_id in _sse_session_tenants for tenant-isolated message routing.
     Cleans up session_id on connection disconnect.
+    Uses an asyncio.Lock around the connect handshake and session diffing to prevent
+    concurrent interleaving from misattributing or conflating sessions across tenants.
     """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._connect_lock = asyncio.Lock()
+
     @asynccontextmanager
     async def connect_sse(self, scope: Scope, receive: Receive, send: Send):
-        existing_keys = set(self._read_stream_writers.keys())
-        async with super().connect_sse(scope, receive, send) as streams:
+        async with self._connect_lock:
+            existing_keys = set(self._read_stream_writers.keys())
+            cm = super().connect_sse(scope, receive, send)
+            streams = await cm.__aenter__()
             new_keys = set(self._read_stream_writers.keys()) - existing_keys
-            session_id = next(iter(new_keys)) if new_keys else None
+            session_id = next(iter(new_keys)) if len(new_keys) == 1 else None
             tenant_id = get_current_tenant_id()
             if session_id and tenant_id:
                 _sse_session_tenants[session_id.hex] = tenant_id
                 logger.debug(f"Mapped SSE session {session_id.hex} to tenant {tenant_id}")
-            try:
-                yield streams
-            finally:
-                if session_id:
-                    _sse_session_tenants.pop(session_id.hex, None)
-                    logger.debug(f"Cleaned up SSE session {session_id.hex}")
+            elif not session_id:
+                logger.error(
+                    "SSE session_id capture ambiguous or failed "
+                    f"(new_keys={len(new_keys)}) - refusing to guess tenant mapping"
+                )
+        # lock released here — actual streaming happens outside the lock
+        try:
+            yield streams
+        except BaseException:
+            exc_info = sys.exc_info()
+            await cm.__aexit__(*exc_info)
+            raise
+        else:
+            await cm.__aexit__(None, None, None)
+        finally:
+            if session_id:
+                _sse_session_tenants.pop(session_id.hex, None)
+                logger.debug(f"Cleaned up SSE session {session_id.hex}")
 
 # Patch SseServerTransport in mcpserver module before sse_app is instantiated
 from mcp.server.mcpserver import server as mcpserver_module
