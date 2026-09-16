@@ -90,9 +90,13 @@ def test_onboarding_post_saves_credentials_and_renders_results(client):
         # Verify results page contains MCP Server URL with /mcp
         assert "/mcp" in html
 
-        # Verify Central Auth explanation
-        assert "Central Auth" in html
-        assert "this page does not issue or display any auth credentials of its own" in html
+        # Verify customer-facing copy and absence of internal terms
+        assert "MCP Server Connection" in html
+        assert "MCP Server URL" in html
+        assert "MCP API Key" in html
+        assert "Central Auth" not in html
+        assert "OAuth 2.1" not in html
+        assert "JWKS" not in html
 
         # Verify per-LLM tabs are present
         assert "Claude" in html

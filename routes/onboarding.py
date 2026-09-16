@@ -184,6 +184,7 @@ async def onboarding_form_submit(
     base_url = get_base_url(request)
     mcp_server_url = f"{base_url}/mcp/{url_token}"
     sse_server_url = f"{base_url}/sse/{url_token}"
+    mcp_api_key = settings.MCP_AUTH_TOKEN or settings.MCP_AUTH_AUDIENCE
 
     return templates.TemplateResponse(
         request=request,
@@ -195,7 +196,8 @@ async def onboarding_form_submit(
             "base_url": base_url,
             "mcp_server_url": mcp_server_url,
             "sse_server_url": sse_server_url,
-            "url_token": url_token
+            "url_token": url_token,
+            "mcp_api_key": mcp_api_key
         }
     )
 
@@ -300,6 +302,7 @@ async def onboarding_regenerate_link(
         base_url = get_base_url(request)
         mcp_server_url = f"{base_url}/mcp/{new_token}"
         sse_server_url = f"{base_url}/sse/{new_token}"
+        mcp_api_key = settings.MCP_AUTH_TOKEN or settings.MCP_AUTH_AUDIENCE
 
         logger.info(f"Onboarding: Successfully rotated url_token for tenant {tenant_id}")
         return JSONResponse(
@@ -308,7 +311,8 @@ async def onboarding_regenerate_link(
                 "success": True,
                 "url_token": new_token,
                 "mcp_server_url": mcp_server_url,
-                "sse_server_url": sse_server_url
+                "sse_server_url": sse_server_url,
+                "mcp_api_key": mcp_api_key
             }
         )
     except Exception as e:

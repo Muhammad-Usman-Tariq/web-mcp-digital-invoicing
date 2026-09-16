@@ -1,13 +1,13 @@
 {% extends "onboarding/base.html" %}
 
-{% block title %}Onboard Tenant &bull; digital-invoice-web{% endblock %}
+{% block title %}Account Onboarding &bull; Digital Invoicing MCP{% endblock %}
 
 {% block content %}
-<div class="card" style="max-width: 620px; margin: 0 auto;">
+<div class="card">
     <div class="card-header">
         <h1 class="card-title">Tenant Onboarding</h1>
         <p class="card-subtitle">
-            Submit your Digital Invoicing Software portal credentials to connect your LLM assistant to this MCP server.
+            Submit your Digital Invoicing Software portal credentials to connect your AI assistant to this MCP server.
         </p>
     </div>
 
@@ -27,14 +27,14 @@
                 name="company_name" 
                 class="form-control" 
                 value="{{ form_data.company_name or '' }}" 
-                placeholder="e.g. Acme Corporation" 
+                placeholder="Acme Corporation" 
                 required
             >
-            <p class="form-hint">The legal or registered name of your business organization.</p>
+            <p class="form-hint">The registered name of your business organization.</p>
         </div>
 
         <div class="form-group">
-            <label class="form-label" for="email">Digital Invoicing Software Email</label>
+            <label class="form-label" for="email">Portal Email</label>
             <input 
                 type="email" 
                 id="email" 
@@ -44,11 +44,11 @@
                 placeholder="user@digitalinvoicingsoftware.com" 
                 required
             >
-            <p class="form-hint">The login email used at https://www.digitalinvoicingsoftware.com</p>
+            <p class="form-hint">The login email used for digitalinvoicingsoftware.com</p>
         </div>
 
         <div class="form-group">
-            <label class="form-label" for="password">Digital Invoicing Software Password</label>
+            <label class="form-label" for="password">Portal Password</label>
             <input 
                 type="password" 
                 id="password" 
@@ -58,11 +58,11 @@
                 autocomplete="new-password"
                 required
             >
-            <p class="form-hint">Stored strictly using AES-256-GCM encryption. Never logged or exposed in error messages.</p>
+            <p class="form-hint">Stored securely using AES-256-GCM encryption. Never logged or exposed.</p>
         </div>
 
-        <div style="margin-top: 32px;">
-            <button type="submit" class="btn btn-primary" style="width: 100%; padding: 14px; font-size: 1rem;">
+        <div style="margin-top: 28px;">
+            <button type="submit" class="btn btn-primary" style="width: 100%; padding: 12px; font-size: 0.95rem;">
                 Save Credentials &amp; Get MCP Connection Info &rarr;
             </button>
         </div>

@@ -29,6 +29,10 @@ class Settings(BaseSettings):
         default=None,
         description="Optional Central Auth revocation endpoint"
     )
+    MCP_AUTH_TOKEN: str = Field(
+        default="",
+        description="Shared MCP client authentication token / API key"
+    )
 
     # Supabase Settings (No defaults: required)
     SUPABASE_URL: str = Field(

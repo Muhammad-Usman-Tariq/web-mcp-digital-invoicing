@@ -223,6 +223,7 @@ def test_onboarding_regenerate_link_flow(mcp_test_client):
         assert data["url_token"] == new_token
         assert f"/mcp/{new_token}" in data["mcp_server_url"]
         assert f"/sse/{new_token}" in data["sse_server_url"]
+        assert "mcp_api_key" in data
         assert old_token not in data["mcp_server_url"]
 
     # 2. Wrong password failure
