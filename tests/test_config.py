@@ -21,6 +21,7 @@ def test_missing_critical_settings_raises_validation_error(monkeypatch):
 def test_validate_critical_settings_empty_strings():
     s = Settings(
         MCP_AUTH_AUDIENCE="",
+        MCP_AUTH_TOKEN="",
         SUPABASE_URL="",
         SUPABASE_SERVICE_ROLE_KEY="",
         ENCRYPTION_MASTER_KEY="",
@@ -30,6 +31,7 @@ def test_validate_critical_settings_empty_strings():
     joined = "\n".join(errors)
 
     assert "FATAL: MCP_AUTH_AUDIENCE is not set" in joined
+    assert "FATAL: MCP_AUTH_TOKEN is not set" in joined
     assert "FATAL: SUPABASE_URL is not set" in joined
     assert "FATAL: SUPABASE_SERVICE_ROLE_KEY is not set" in joined
     assert "FATAL: ENCRYPTION_MASTER_KEY is not set" in joined
@@ -37,6 +39,7 @@ def test_validate_critical_settings_empty_strings():
 def test_validate_critical_settings_valid():
     s = Settings(
         MCP_AUTH_AUDIENCE="prod-audience",
+        MCP_AUTH_TOKEN="my-mcp-auth-token",
         SUPABASE_URL="https://myproj.supabase.co",
         SUPABASE_SERVICE_ROLE_KEY="my-secret-key",
         ENCRYPTION_MASTER_KEY="a" * 64,
@@ -44,6 +47,19 @@ def test_validate_critical_settings_valid():
     )
     errors = validate_critical_settings(s)
     assert len(errors) == 0
+
+def test_validate_critical_settings_placeholder_token():
+    s = Settings(
+        MCP_AUTH_AUDIENCE="prod-audience",
+        MCP_AUTH_TOKEN="your-mcp-auth-token",
+        SUPABASE_URL="https://myproj.supabase.co",
+        SUPABASE_SERVICE_ROLE_KEY="my-secret-key",
+        ENCRYPTION_MASTER_KEY="a" * 64,
+        _env_file=None
+    )
+    errors = validate_critical_settings(s)
+    joined = "\n".join(errors)
+    assert "FATAL: MCP_AUTH_TOKEN is using the placeholder value" in joined
 
 @pytest.mark.asyncio
 async def test_server_lifespan_fails_with_invalid_settings(monkeypatch):
@@ -56,3 +72,11 @@ async def test_server_lifespan_fails_with_invalid_settings(monkeypatch):
         async with lifespan(app):
             pass
     assert "FATAL: MCP_AUTH_AUDIENCE is not set" in str(excinfo.value)
+
+    # Set an invalid/empty MCP_AUTH_TOKEN on the loaded settings object
+    monkeypatch.setattr(core.config.settings, "MCP_AUTH_AUDIENCE", "valid-audience")
+    monkeypatch.setattr(core.config.settings, "MCP_AUTH_TOKEN", "")
+    with pytest.raises(RuntimeError) as excinfo:
+        async with lifespan(app):
+            pass
+    assert "FATAL: MCP_AUTH_TOKEN is not set" in str(excinfo.value)

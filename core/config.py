@@ -94,6 +94,16 @@ def validate_critical_settings(s: Settings) -> List[str]:
             "FATAL: MCP_AUTH_AUDIENCE is not set. Copy .env.sample to .env and paste the exact audience value from the Central Auth admin panel before starting this server."
         )
 
+    # Check MCP_AUTH_TOKEN
+    if not s.MCP_AUTH_TOKEN or not s.MCP_AUTH_TOKEN.strip():
+        errors.append(
+            "FATAL: MCP_AUTH_TOKEN is not set. Copy .env.example to .env and paste the static token given by Central Auth during registration before starting this server."
+        )
+    elif s.MCP_AUTH_TOKEN == "your-mcp-auth-token":
+        errors.append(
+            "FATAL: MCP_AUTH_TOKEN is using the placeholder value from .env.example. Paste the actual static token given by Central Auth during registration."
+        )
+
     # Check SUPABASE_URL
     if not s.SUPABASE_URL or not s.SUPABASE_URL.strip() or "your-supabase-project" in s.SUPABASE_URL:
         errors.append(
