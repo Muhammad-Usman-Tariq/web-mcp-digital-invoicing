@@ -220,36 +220,56 @@
         <div id="tab-claude" class="tab-content active">
             <ol class="guide-steps">
                 <li class="guide-step">
-                    Open Claude (web or desktop) &rarr; <strong>Settings</strong> &rarr; <strong>Connectors</strong>.
+                    Open Claude (web at claude.ai, or the Claude Desktop app) and go to <strong>Settings</strong>.
                 </li>
                 <li class="guide-step">
-                    Click <strong>Add custom connector</strong>.
+                    Click <strong>&ldquo;Connectors&rdquo;</strong> in the settings sidebar.
                 </li>
                 <li class="guide-step">
-                    Paste the <strong>MCP Server URL</strong> (shown above) into the URL field.
+                    Click <strong>&ldquo;Add custom connector&rdquo;</strong>.
                 </li>
                 <li class="guide-step">
-                    If prompted for authentication, enter the <strong>MCP API Key</strong> shown above (or provide it as a Bearer token in the Authorization header).
+                    <strong>Name</strong> field: type a name, e.g. your company name.
+                </li>
+                <li class="guide-step">
+                    <strong>Remote MCP server URL</strong> field: paste the MCP Server URL:
+                    <div style="display: flex; gap: 8px; align-items: center; margin-top: 6px;">
+                        <code style="background: #F3F4F6; padding: 4px 8px; border-radius: 4px; font-size: 0.85rem; word-break: break-all;"><span class="snippet-mcp-url">{{ mcp_server_url }}</span></code>
+                        <button class="btn btn-secondary btn-sm" onclick="copyText(document.getElementById('mcp-url').textContent, 'MCP Server URL copied!')">Copy URL</button>
+                    </div>
+                </li>
+                <li class="guide-step">
+                    Click <strong>&ldquo;Continue&rdquo;</strong>.
+                </li>
+                <li class="guide-step">
+                    It may show &ldquo;Couldn't determine the server settings&rdquo; &mdash; this is expected, not an error. Click <strong>&ldquo;Next&rdquo;</strong>.
+                </li>
+                <li class="guide-step">
+                    Under <strong>&ldquo;Authentication&rdquo;</strong>, select <strong>&ldquo;None&rdquo;</strong>.
+                </li>
+                <li class="guide-step">
+                    Scroll to <strong>&ldquo;Additional request headers&rdquo;</strong> / <strong>&ldquo;Request headers&rdquo;</strong>, click <strong>&ldquo;Add header&rdquo;</strong>.
+                </li>
+                <li class="guide-step">
+                    In the header name dropdown, search for and select <strong>&ldquo;x-api-key&rdquo;</strong> (must pick from the list, typing a custom name won't work).
+                </li>
+                <li class="guide-step">
+                    In the <strong>Value</strong> field, paste the MCP API Key:
+                    <div style="display: flex; gap: 8px; align-items: center; margin-top: 6px;">
+                        <code style="background: #F3F4F6; padding: 4px 8px; border-radius: 4px; font-size: 0.85rem; word-break: break-all;"><span class="snippet-mcp-key">{{ mcp_api_key }}</span></code>
+                        <button class="btn btn-secondary btn-sm" onclick="copyText(document.getElementById('mcp-key').textContent, 'MCP API Key copied!')">Copy Key</button>
+                    </div>
+                </li>
+                <li class="guide-step">
+                    Click <strong>&ldquo;Add&rdquo;</strong>.
+                </li>
+                <li class="guide-step">
+                    If it briefly shows &ldquo;Connection issue&rdquo;: start a brand new chat and check again &mdash; it usually shows &ldquo;Connected&rdquo; once a fresh chat is opened. If not, click the connector and press &ldquo;Reconnect&rdquo;.
+                </li>
+                <li class="guide-step">
+                    Start a new chat and try a tool, e.g. &ldquo;list my buyers&rdquo; or &ldquo;show my dashboard summary&rdquo;.
                 </li>
             </ol>
-
-            <div style="display: flex; gap: 10px; margin-top: 16px;">
-                <button class="btn btn-secondary btn-sm" onclick="copyText(document.getElementById('mcp-url').textContent, 'MCP Server URL copied!')">Copy URL</button>
-                <button class="btn btn-secondary btn-sm" onclick="copyText(document.getElementById('mcp-key').textContent, 'MCP API Key copied!')">Copy Key</button>
-            </div>
-
-            <p style="margin-top: 18px; font-size: 0.85rem; color: var(--text-secondary);">Or configure manually in <code>claude_desktop_config.json</code>:</p>
-            <pre class="code-block"><code>{
-  "mcpServers": {
-    "digital-invoice-web": {
-      "url": "<span class="snippet-mcp-url">{{ mcp_server_url }}</span>",
-      "headers": {
-        "Authorization": "Bearer <span class="snippet-mcp-key">{{ mcp_api_key }}</span>"
-      }
-    }
-  }
-}</code></pre>
-
             <p class="guide-disclaimer">
                 Steps may change as the provider updates their product — verify before publishing.
             </p>
@@ -259,29 +279,37 @@
         <div id="tab-cursor" class="tab-content">
             <ol class="guide-steps">
                 <li class="guide-step">
-                    Open Cursor &rarr; <strong>Settings</strong> &rarr; <strong>Features</strong> &rarr; <strong>MCP</strong>.
+                    Open Cursor and click the gear icon (top right) to open <strong>Settings</strong>.
                 </li>
                 <li class="guide-step">
-                    Click <strong>Add New MCP Server</strong>.
+                    In the left sidebar, click <strong>&ldquo;Tools &amp; Integrations&rdquo;</strong> (or &ldquo;MCP Tools&rdquo;).
                 </li>
                 <li class="guide-step">
-                    Paste this into your MCP configuration file:
-                    <pre class="code-block"><code>{
+                    Click <strong>&ldquo;Add Custom MCP&rdquo;</strong> (or &ldquo;New MCP Server&rdquo;) &mdash; this opens your <code>mcp.json</code> file (<code>~/.cursor/mcp.json</code> for global, or <code>.cursor/mcp.json</code> in your project).
+                </li>
+                <li class="guide-step">
+                    Add this configuration:
+                    <pre class="code-block" id="cursor-config"><code>{
   "mcpServers": {
     "digital-invoice-web": {
       "url": "<span class="snippet-mcp-url">{{ mcp_server_url }}</span>",
       "headers": {
-        "Authorization": "Bearer <span class="snippet-mcp-key">{{ mcp_api_key }}</span>"
+        "x-api-key": "<span class="snippet-mcp-key">{{ mcp_api_key }}</span>"
       }
     }
   }
 }</code></pre>
+                    <div style="margin-top: 8px;">
+                        <button class="btn btn-secondary btn-sm" onclick="copySnippet('cursor-config', 'Cursor config copied!')">Copy Config</button>
+                    </div>
+                </li>
+                <li class="guide-step">
+                    Save the file. Return to <strong>Tools &amp; Integrations</strong> and confirm <strong>&ldquo;digital-invoice-web&rdquo;</strong> shows a green/connected status (click Refresh if not).
+                </li>
+                <li class="guide-step">
+                    In Agent/Composer mode, describe an invoicing task and Cursor will call the tools automatically.
                 </li>
             </ol>
-            <div style="display: flex; gap: 10px; margin-top: 12px;">
-                <button class="btn btn-secondary btn-sm" onclick="copyText(document.getElementById('mcp-url').textContent, 'MCP Server URL copied!')">Copy URL</button>
-                <button class="btn btn-secondary btn-sm" onclick="copyText(document.getElementById('mcp-key').textContent, 'MCP API Key copied!')">Copy Key</button>
-            </div>
             <p class="guide-disclaimer">
                 Steps may change as the provider updates their product — verify before publishing.
             </p>
@@ -291,29 +319,34 @@
         <div id="tab-windsurf" class="tab-content">
             <ol class="guide-steps">
                 <li class="guide-step">
-                    Open Windsurf settings or edit <code>~/.codeium/windsurf/mcp_config.json</code>.
+                    Open Windsurf. Click the MCP servers icon (hammer icon) in the Cascade panel, or go to <strong>Windsurf Settings &rarr; Cascade &rarr; MCP Servers</strong>.
                 </li>
                 <li class="guide-step">
-                    Add a new server entry named <code>digital-invoice-web</code>.
+                    Click <strong>&ldquo;Manage MCPs&rdquo;</strong> then <strong>&ldquo;View raw config&rdquo;</strong> to open <code>mcp_config.json</code> (location: <code>~/.codeium/windsurf/mcp_config.json</code> on macOS/Linux, <code>%USERPROFILE%\.codeium\windsurf\mcp_config.json</code> on Windows).
                 </li>
                 <li class="guide-step">
-                    Paste this into your MCP configuration file:
-                    <pre class="code-block"><code>{
+                    Add this configuration:
+                    <pre class="code-block" id="windsurf-config"><code>{
   "mcpServers": {
     "digital-invoice-web": {
-      "url": "<span class="snippet-mcp-url">{{ mcp_server_url }}</span>",
+      "serverUrl": "<span class="snippet-mcp-url">{{ mcp_server_url }}</span>",
       "headers": {
-        "Authorization": "Bearer <span class="snippet-mcp-key">{{ mcp_api_key }}</span>"
+        "x-api-key": "<span class="snippet-mcp-key">{{ mcp_api_key }}</span>"
       }
     }
   }
 }</code></pre>
+                    <div style="margin-top: 8px;">
+                        <button class="btn btn-secondary btn-sm" onclick="copySnippet('windsurf-config', 'Windsurf config copied!')">Copy Config</button>
+                    </div>
+                </li>
+                <li class="guide-step">
+                    Save the file, then click <strong>&ldquo;Refresh&rdquo;</strong> in the MCP panel.
+                </li>
+                <li class="guide-step">
+                    <strong>&ldquo;digital-invoice-web&rdquo;</strong> tools should now appear for Cascade to use.
                 </li>
             </ol>
-            <div style="display: flex; gap: 10px; margin-top: 12px;">
-                <button class="btn btn-secondary btn-sm" onclick="copyText(document.getElementById('mcp-url').textContent, 'MCP Server URL copied!')">Copy URL</button>
-                <button class="btn btn-secondary btn-sm" onclick="copyText(document.getElementById('mcp-key').textContent, 'MCP API Key copied!')">Copy Key</button>
-            </div>
             <p class="guide-disclaimer">
                 Steps may change as the provider updates their product — verify before publishing.
             </p>
@@ -323,29 +356,37 @@
         <div id="tab-antigravity" class="tab-content">
             <ol class="guide-steps">
                 <li class="guide-step">
-                    Open Antigravity settings &rarr; <strong>MCP Servers</strong> (or open <code>mcp_config.json</code>).
+                    Open Google Antigravity. Click the <strong>&ldquo;...&rdquo;</strong> menu (top right of the editor's side panel) and select <strong>&ldquo;MCP Servers&rdquo;</strong> to open the MCP store.
                 </li>
                 <li class="guide-step">
-                    Click <strong>Add Server</strong> and choose HTTP transport.
+                    Click <strong>&ldquo;Manage MCP Servers&rdquo;</strong>, then click <strong>&ldquo;View raw config&rdquo;</strong> to open <code>mcp_config.json</code>.
                 </li>
                 <li class="guide-step">
-                    Paste this into your MCP configuration file:
-                    <pre class="code-block"><code>{
+                    Add this configuration:
+                    <pre class="code-block" id="antigravity-config"><code>{
   "mcpServers": {
     "digital-invoice-web": {
-      "url": "<span class="snippet-mcp-url">{{ mcp_server_url }}</span>",
+      "serverUrl": "<span class="snippet-mcp-url">{{ mcp_server_url }}</span>",
       "headers": {
-        "Authorization": "Bearer <span class="snippet-mcp-key">{{ mcp_api_key }}</span>"
+        "x-api-key": "<span class="snippet-mcp-key">{{ mcp_api_key }}</span>"
       }
     }
   }
 }</code></pre>
+                    <div style="margin-top: 8px;">
+                        <button class="btn btn-secondary btn-sm" onclick="copySnippet('antigravity-config', 'Antigravity config copied!')">Copy Config</button>
+                    </div>
+                </li>
+                <li class="guide-step">
+                    Save the file. Return to the MCP store and click <strong>Refresh</strong> &mdash; you should see <strong>&ldquo;digital-invoice-web&rdquo;</strong> listed as connected.
+                </li>
+                <li class="guide-step">
+                    In an Agent session, describe an invoicing task and Antigravity will use the connected tools.
                 </li>
             </ol>
-            <div style="display: flex; gap: 10px; margin-top: 12px;">
-                <button class="btn btn-secondary btn-sm" onclick="copyText(document.getElementById('mcp-url').textContent, 'MCP Server URL copied!')">Copy URL</button>
-                <button class="btn btn-secondary btn-sm" onclick="copyText(document.getElementById('mcp-key').textContent, 'MCP API Key copied!')">Copy Key</button>
-            </div>
+            <p style="margin-top: 14px; font-size: 0.85rem; color: var(--text-secondary);">
+                <strong>Note:</strong> config file location can also be <code>~/.gemini/config/mcp_config.json</code> depending on Antigravity version &mdash; if the in-editor &ldquo;View raw config&rdquo; button is available, prefer that over guessing the file path.
+            </p>
             <p class="guide-disclaimer">
                 Steps may change as the provider updates their product — verify before publishing.
             </p>
@@ -355,25 +396,33 @@
         <div id="tab-openai" class="tab-content">
             <ol class="guide-steps">
                 <li class="guide-step">
-                    In ChatGPT, go to <strong>Settings</strong> &rarr; <strong>Connected apps</strong> or <strong>Custom Connectors</strong>.
+                    Requires ChatGPT Plus, Pro, Business, Enterprise, or Edu (not available on Free). In ChatGPT, go to <strong>Settings</strong> &rarr; <strong>Connectors</strong> (or <strong>Apps &amp; Connectors</strong>) &rarr; <strong>Advanced settings</strong>, and turn on <strong>&ldquo;Developer mode&rdquo;</strong>.
                 </li>
                 <li class="guide-step">
-                    Click <strong>Add new connector</strong>.
+                    Back in Connectors, click <strong>&ldquo;Create&rdquo;</strong> (or &ldquo;Add custom connector&rdquo;).
                 </li>
                 <li class="guide-step">
-                    Use the connection configuration:
-                    <pre class="code-block"><code>{
-  "url": "<span class="snippet-mcp-url">{{ mcp_server_url }}</span>",
-  "headers": {
-    "Authorization": "Bearer <span class="snippet-mcp-key">{{ mcp_api_key }}</span>"
-  }
-}</code></pre>
+                    Enter a Name (e.g. your company name) and paste the MCP Server URL:
+                    <div style="display: flex; gap: 8px; align-items: center; margin-top: 6px;">
+                        <code style="background: #F3F4F6; padding: 4px 8px; border-radius: 4px; font-size: 0.85rem; word-break: break-all;"><span class="snippet-mcp-url">{{ mcp_server_url }}</span></code>
+                        <button class="btn btn-secondary btn-sm" onclick="copyText(document.getElementById('mcp-url').textContent, 'MCP Server URL copied!')">Copy URL</button>
+                    </div>
+                </li>
+                <li class="guide-step">
+                    For Authentication: if your version shows an <strong>&ldquo;API key&rdquo;</strong> or <strong>&ldquo;Bearer token&rdquo;</strong> field, paste the MCP API Key:
+                    <div style="display: flex; gap: 8px; align-items: center; margin: 6px 0;">
+                        <code style="background: #F3F4F6; padding: 4px 8px; border-radius: 4px; font-size: 0.85rem; word-break: break-all;"><span class="snippet-mcp-key">{{ mcp_api_key }}</span></code>
+                        <button class="btn btn-secondary btn-sm" onclick="copyText(document.getElementById('mcp-key').textContent, 'MCP API Key copied!')">Copy Key</button>
+                    </div>
+                    If your version only offers &ldquo;OAuth&rdquo; or &ldquo;No authentication&rdquo; with no key/header field, ChatGPT cannot currently authenticate to this server that way &mdash; this is a known limitation of ChatGPT's custom connector UI, not an issue with your setup. Try &ldquo;No authentication&rdquo; first; if the connection fails, this client isn't fully supported yet for your ChatGPT plan/version.
+                </li>
+                <li class="guide-step">
+                    Save. Start a new chat, enable the connector via the tools/plus menu, and try a tool request.
                 </li>
             </ol>
-            <div style="display: flex; gap: 10px; margin-top: 12px;">
-                <button class="btn btn-secondary btn-sm" onclick="copyText(document.getElementById('mcp-url').textContent, 'MCP Server URL copied!')">Copy URL</button>
-                <button class="btn btn-secondary btn-sm" onclick="copyText(document.getElementById('mcp-key').textContent, 'MCP API Key copied!')">Copy Key</button>
-            </div>
+            <p style="margin-top: 14px; font-size: 0.85rem; color: var(--text-secondary);">
+                <strong>Note:</strong> OpenAI's connector setup changes frequently &mdash; if these steps don't match what you see, check OpenAI's current Connectors documentation.
+            </p>
             <p class="guide-disclaimer">
                 Steps may change as the provider updates their product — verify before publishing.
             </p>
@@ -446,6 +495,13 @@
 
 {% block extra_scripts %}
 <script>
+    function copySnippet(elementId, successMsg = 'Configuration copied!') {
+        const el = document.getElementById(elementId);
+        if (el) {
+            copyText(el.textContent.trim(), successMsg);
+        }
+    }
+
     function switchTab(tabId) {
         document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
         document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));

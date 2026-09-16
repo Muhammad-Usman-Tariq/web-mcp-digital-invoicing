@@ -105,6 +105,13 @@ def test_onboarding_post_saves_credentials_and_renders_results(client):
         assert "Antigravity" in html
         assert "OpenAI / GPT" in html
 
+        # Verify key differences in client tab configurations
+        assert '"url":' in html  # Cursor uses "url"
+        assert '"serverUrl":' in html  # Windsurf & Antigravity use "serverUrl"
+        assert '"x-api-key":' in html  # Header used across tools
+        assert "Developer mode" in html  # OpenAI step
+        assert "click here to connect automatically" not in html.lower()
+
         # Verify disclaimer on all sections
         disclaimer = "Steps may change as the provider updates their product — verify before publishing."
         assert disclaimer in html
