@@ -2,11 +2,13 @@ import logging
 from contextlib import asynccontextmanager
 from typing import List, Optional
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from mcp.server.mcpserver import MCPServer
 from mcp.server.sse import TransportSecuritySettings
 
 from core.config import settings, validate_critical_settings
-from core.context import set_current_auth_claims, clear_context
+from core.context import set_current_auth_claims, set_current_tenant_id, clear_context
+from db.supabase_client import db_service
 from sdk.python.mcp_auth_middleware import McpAuthMiddleware
 from browser.manager import browser_manager
 
@@ -186,6 +188,43 @@ async def extract_tenant_context(request: Request, call_next):
         auth_payload = getattr(request.state, "auth", None)
         if auth_payload and isinstance(auth_payload, dict):
             set_current_auth_claims(auth_payload)
+
+        # Resolve tenant by url_token for /mcp and /sse requests
+        path = request.url.path
+        if path == "/mcp" or path.startswith("/mcp/") or path == "/sse" or path.startswith("/sse/"):
+            url_token = request.path_params.get("url_token")
+            if not url_token:
+                if path.startswith("/mcp/"):
+                    token_candidate = path[len("/mcp/"):].split("/")[0].strip()
+                    if token_candidate:
+                        url_token = token_candidate
+                elif path.startswith("/sse/"):
+                    token_candidate = path[len("/sse/"):].split("/")[0].strip()
+                    if token_candidate:
+                        url_token = token_candidate
+
+            if not url_token:
+                return JSONResponse(
+                    status_code=401,
+                    content={
+                        "error": "unauthorized",
+                        "error_description": "Missing authentication token. Provide Bearer or x-api-key header."
+                    },
+                    headers={"WWW-Authenticate": f'Bearer realm="{settings.MCP_AUTH_AUDIENCE}", error="unauthorized"'}
+                )
+
+            resolved_tenant_id = await db_service.get_tenant_id_by_url_token(url_token)
+            if not resolved_tenant_id:
+                return JSONResponse(
+                    status_code=401,
+                    content={
+                        "error": "unauthorized",
+                        "error_description": "Missing authentication token. Provide Bearer or x-api-key header."
+                    },
+                    headers={"WWW-Authenticate": f'Bearer realm="{settings.MCP_AUTH_AUDIENCE}", error="unauthorized"'}
+                )
+            set_current_tenant_id(resolved_tenant_id)
+
         response = await call_next(request)
         return response
     finally:
@@ -216,8 +255,14 @@ app.include_router(onboarding_router)
 
 # 9. Register MCP Streamable HTTP and SSE Transports
 sec_settings = TransportSecuritySettings(enable_dns_rebinding_protection=False)
-streamable_app = mcp.streamable_http_app(transport_security=sec_settings)
-sse_app = mcp.sse_app(transport_security=sec_settings)
+streamable_app = mcp.streamable_http_app(
+    transport_security=sec_settings,
+    streamable_http_path="/mcp/{url_token}"
+)
+sse_app = mcp.sse_app(
+    transport_security=sec_settings,
+    sse_path="/sse/{url_token}"
+)
 
 for route in streamable_app.routes:
     app.routes.append(route)

@@ -172,6 +172,43 @@
         </div>
     </div>
 
+    <!-- Regenerate My Link Card -->
+    <div class="card" style="border-color: rgba(245, 158, 11, 0.35);">
+        <div class="card-header">
+            <h2 class="card-title" style="font-size: 1.25rem;">Rotate / Regenerate Server Link</h2>
+            <p class="card-subtitle">
+                Need to invalidate your existing URL token? Re-enter your portal email and password to rotate your token. Previous URLs will stop working immediately.
+            </p>
+        </div>
+
+        <div id="regen-result-box" style="display: none; margin-bottom: 20px;"></div>
+
+        <form id="form-regenerate-link" onsubmit="runRegenerateLink(event)" style="display: flex; flex-direction: column; gap: 14px;">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+                <div>
+                    <label class="form-label" for="regen-email">Portal Email</label>
+                    <input type="email" id="regen-email" name="email" class="form-input" required placeholder="billing@company.com" autocomplete="email">
+                </div>
+                <div>
+                    <label class="form-label" for="regen-password">Portal Password</label>
+                    <input type="password" id="regen-password" name="password" class="form-input" required placeholder="••••••••••••" autocomplete="current-password">
+                </div>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 14px; margin-top: 6px;">
+                <button type="submit" id="btn-regenerate-link" class="btn btn-secondary">
+                    <svg id="regen-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                    </svg>
+                    <span id="regen-btn-label">Rotate &amp; Generate New Link</span>
+                </button>
+                <span style="font-size: 0.85rem; color: var(--text-muted);">
+                    Verifies credentials before issuing a new token.
+                </span>
+            </div>
+        </form>
+    </div>
+
     <!-- Per-LLM Step-by-Step Guides -->
     <div class="card">
         <div class="card-header">
@@ -221,8 +258,19 @@
                     <em>For Claude Code CLI:</em> Run in terminal:
                     <div class="copy-box" style="margin: 8px 0;">
                         <span class="copy-text">claude mcp add --transport http digital-invoice-web {{ mcp_server_url }}</span>
-                        <button class="btn btn-secondary btn-sm" onclick="copyText('claude mcp add --transport http digital-invoice-web {{ mcp_server_url }}')">Copy</button>
+                        <button class="btn btn-secondary btn-sm" onclick="copyText('claude mcp add --transport http digital-invoice-web ' + document.getElementById('mcp-url').textContent)">Copy</button>
                     </div>
+                    <p style="margin-top: 10px; font-size: 0.85rem; color: var(--text-secondary);">Or in <code>claude_desktop_config.json</code>:</p>
+                    <pre style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 6px; font-size: 0.85rem; overflow-x: auto; color: #cbd5e1;"><code>{
+  "mcpServers": {
+    "digital-invoice-web": {
+      "url": "<span class="snippet-mcp-url">{{ mcp_server_url }}</span>",
+      "headers": {
+        "Authorization": "Bearer MCP_AUTH_TOKEN"
+      }
+    }
+  }
+}</code></pre>
                 </li>
             </ol>
             <p class="guide-disclaimer">
@@ -248,6 +296,17 @@
                 </li>
                 <li class="guide-step">
                     <strong>Authenticate:</strong> Follow Cursor's prompt to complete authentication via Central Auth per its supported mode.
+                    <p style="margin-top: 10px; font-size: 0.85rem; color: var(--text-secondary);">Configuration snippet:</p>
+                    <pre style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 6px; font-size: 0.85rem; overflow-x: auto; color: #cbd5e1;"><code>{
+  "mcpServers": {
+    "digital-invoice-web": {
+      "url": "<span class="snippet-mcp-url">{{ mcp_server_url }}</span>",
+      "headers": {
+        "Authorization": "Bearer MCP_AUTH_TOKEN"
+      }
+    }
+  }
+}</code></pre>
                 </li>
             </ol>
             <p class="guide-disclaimer">
@@ -273,6 +332,17 @@
                 </li>
                 <li class="guide-step">
                     <strong>Authenticate:</strong> Follow Windsurf's prompt to complete authentication with Central Auth.
+                    <p style="margin-top: 10px; font-size: 0.85rem; color: var(--text-secondary);">In <code>~/.codeium/windsurf/mcp_config.json</code>:</p>
+                    <pre style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 6px; font-size: 0.85rem; overflow-x: auto; color: #cbd5e1;"><code>{
+  "mcpServers": {
+    "digital-invoice-web": {
+      "url": "<span class="snippet-mcp-url">{{ mcp_server_url }}</span>",
+      "headers": {
+        "Authorization": "Bearer MCP_AUTH_TOKEN"
+      }
+    }
+  }
+}</code></pre>
                 </li>
             </ol>
             <p class="guide-disclaimer">
@@ -298,6 +368,17 @@
                 </li>
                 <li class="guide-step">
                     <strong>Authenticate:</strong> Follow Antigravity's authentication prompt to complete Central Auth verification.
+                    <p style="margin-top: 10px; font-size: 0.85rem; color: var(--text-secondary);">In Antigravity <code>mcp_config.json</code>:</p>
+                    <pre style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 6px; font-size: 0.85rem; overflow-x: auto; color: #cbd5e1;"><code>{
+  "mcpServers": {
+    "digital-invoice-web": {
+      "url": "<span class="snippet-mcp-url">{{ mcp_server_url }}</span>",
+      "headers": {
+        "Authorization": "Bearer MCP_AUTH_TOKEN"
+      }
+    }
+  }
+}</code></pre>
                 </li>
             </ol>
             <p class="guide-disclaimer">
@@ -323,6 +404,13 @@
                 </li>
                 <li class="guide-step">
                     <strong>Authenticate:</strong> Follow the OAuth authorization prompt to sign in with your Central Auth account.
+                    <p style="margin-top: 10px; font-size: 0.85rem; color: var(--text-secondary);">Connector configuration:</p>
+                    <pre style="background: rgba(0,0,0,0.3); padding: 12px; border-radius: 6px; font-size: 0.85rem; overflow-x: auto; color: #cbd5e1;"><code>{
+  "url": "<span class="snippet-mcp-url">{{ mcp_server_url }}</span>",
+  "headers": {
+    "Authorization": "Bearer MCP_AUTH_TOKEN"
+  }
+}</code></pre>
                 </li>
             </ol>
             <p class="guide-disclaimer">
@@ -412,6 +500,82 @@
             btn.disabled = false;
             label.textContent = 'Retest Connection';
             icon.innerHTML = '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline>';
+        }
+    }
+
+    async function runRegenerateLink(event) {
+        event.preventDefault();
+        const btn = document.getElementById('btn-regenerate-link');
+        const label = document.getElementById('regen-btn-label');
+        const icon = document.getElementById('regen-icon');
+        const resultBox = document.getElementById('regen-result-box');
+        const email = document.getElementById('regen-email').value;
+        const password = document.getElementById('regen-password').value;
+
+        btn.disabled = true;
+        label.textContent = 'Rotating token...';
+        icon.innerHTML = '<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" stroke-dasharray="31.4" stroke-dashoffset="10"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/></circle>';
+
+        try {
+            const formData = new FormData();
+            formData.append('email', email);
+            formData.append('password', password);
+
+            const resp = await fetch('/onboarding/regenerate-link', {
+                method: 'POST',
+                body: formData
+            });
+            const data = await resp.json();
+
+            resultBox.style.display = 'block';
+            if (resp.ok && data.success) {
+                const newMcpUrl = data.mcp_server_url;
+                resultBox.className = 'alert alert-success';
+                resultBox.innerHTML = `
+                    <span style="font-size: 1.25rem;">✓</span>
+                    <div>
+                        <strong>New MCP Link Generated!</strong><br>
+                        Your new MCP Server URL has been generated and updated below. Previous URLs have been revoked.<br>
+                        <span style="font-size: 0.85rem; font-family: monospace; word-break: break-all;">${newMcpUrl}</span>
+                    </div>
+                `;
+                // Update MCP URL on the page
+                const mainUrlEl = document.getElementById('mcp-url');
+                if (mainUrlEl) mainUrlEl.textContent = newMcpUrl;
+                document.querySelectorAll('.snippet-mcp-url').forEach(el => {
+                    el.textContent = newMcpUrl;
+                });
+                document.querySelectorAll('.copy-text').forEach(el => {
+                    if (el.textContent.includes('/mcp')) {
+                        el.textContent = el.textContent.replace(/https?:\/\/[^\s"']+\/mcp(\/[a-zA-Z0-9_-]+)?/, newMcpUrl);
+                    }
+                });
+                showToast('New URL token generated successfully!', true);
+                document.getElementById('regen-password').value = '';
+            } else {
+                resultBox.className = 'alert alert-error';
+                resultBox.innerHTML = `
+                    <span style="font-size: 1.25rem;">✕</span>
+                    <div>
+                        <strong>Rotation Failed:</strong> ${data.error || 'Invalid email or password'}
+                    </div>
+                `;
+                showToast(data.error || 'Invalid email or password', false);
+            }
+        } catch (err) {
+            resultBox.style.display = 'block';
+            resultBox.className = 'alert alert-error';
+            resultBox.innerHTML = `
+                <span style="font-size: 1.25rem;">✕</span>
+                <div>
+                    <strong>Network Error:</strong> Failed to communicate with server (${err.message}).
+                </div>
+            `;
+            showToast('Network error during token rotation', false);
+        } finally {
+            btn.disabled = false;
+            label.textContent = 'Rotate & Generate New Link';
+            icon.innerHTML = '<path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>';
         }
     }
 </script>

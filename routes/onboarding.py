@@ -11,6 +11,7 @@ Contains business logic only: zero custom authentication logic, zero token minti
 
 import time
 import uuid
+import secrets
 import logging
 from typing import Dict, List
 
@@ -68,6 +69,29 @@ def get_base_url(request: Request) -> str:
     if request.headers.get("x-forwarded-proto") == "https" and base.startswith("http://"):
         base = "https://" + base[7:]
     return base
+
+
+async def verify_tenant_credentials(tenant_id: str, email: str, password: str) -> bool:
+    """
+    Fetch stored decrypted credentials via db_service.get_decrypted_credentials(tenant_id).
+    Compare email (case-insensitive) and password (exact) against submitted values.
+    Return False if no stored record, or on any mismatch. Never raise on mismatch —
+    only raise on actual DB/decryption errors. Never log submitted passwords.
+    """
+    try:
+        creds = await db_service.get_decrypted_credentials(tenant_id)
+        if not creds:
+            return False
+        stored_email = creds.get("email", "")
+        stored_password = creds.get("password", "")
+        if stored_email.strip().lower() != email.strip().lower():
+            return False
+        if stored_password != password:
+            return False
+        return True
+    except Exception as e:
+        logger.error(f"Error during credential verification for tenant {tenant_id}: {type(e).__name__}")
+        raise
 
 
 @router.get("", response_class=HTMLResponse)
@@ -131,6 +155,7 @@ async def onboarding_form_submit(
 
     # 1. Generate/reuse internal tenant_id for this company (lookup/deterministic by email)
     tenant_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, clean_email))
+    url_token = secrets.token_urlsafe(24)
 
     # 2. Save credentials via existing db_service.save_tenant_credentials (no duplicate encryption logic)
     try:
@@ -139,7 +164,8 @@ async def onboarding_form_submit(
             company_name=clean_company,
             email=clean_email,
             password=password,
-            key_version=settings.CURRENT_KEY_VERSION
+            key_version=settings.CURRENT_KEY_VERSION,
+            url_token=url_token
         )
         logger.info(f"Onboarding: Successfully stored credentials for company '{clean_company}' (tenant_id={tenant_id})")
     except Exception as e:
@@ -156,7 +182,8 @@ async def onboarding_form_submit(
 
     # 3. Render results page
     base_url = get_base_url(request)
-    mcp_server_url = f"{base_url}/mcp"
+    mcp_server_url = f"{base_url}/mcp/{url_token}"
+    sse_server_url = f"{base_url}/sse/{url_token}"
 
     return templates.TemplateResponse(
         request=request,
@@ -166,7 +193,9 @@ async def onboarding_form_submit(
             "company_name": clean_company,
             "masked_email": mask_email(clean_email),
             "base_url": base_url,
-            "mcp_server_url": mcp_server_url
+            "mcp_server_url": mcp_server_url,
+            "sse_server_url": sse_server_url,
+            "url_token": url_token
         }
     )
 
@@ -231,3 +260,60 @@ async def onboarding_test_connection(
         )
     finally:
         clear_context()
+
+
+@router.post("/regenerate-link")
+async def onboarding_regenerate_link(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...)
+):
+    """
+    Regenerates MCP and SSE server URL token for a tenant after credential re-verification.
+    Form fields: email, password (NOT tenant_id or url_token).
+    """
+    ip = get_client_ip(request)
+    if is_rate_limited(f"regen_link:{ip}"):
+        return JSONResponse(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            content={"success": False, "error": "Rate limit reached. Please wait before trying again."}
+        )
+
+    clean_email = email.strip().lower() if email else ""
+    if not clean_email or not password:
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"success": False, "error": "Invalid email or password"}
+        )
+
+    tenant_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, clean_email))
+
+    try:
+        is_valid = await verify_tenant_credentials(tenant_id, clean_email, password)
+        if not is_valid:
+            return JSONResponse(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content={"success": False, "error": "Invalid email or password"}
+            )
+
+        new_token = await db_service.rotate_url_token(tenant_id)
+        base_url = get_base_url(request)
+        mcp_server_url = f"{base_url}/mcp/{new_token}"
+        sse_server_url = f"{base_url}/sse/{new_token}"
+
+        logger.info(f"Onboarding: Successfully rotated url_token for tenant {tenant_id}")
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "success": True,
+                "url_token": new_token,
+                "mcp_server_url": mcp_server_url,
+                "sse_server_url": sse_server_url
+            }
+        )
+    except Exception as e:
+        logger.error(f"Failed to regenerate link: {type(e).__name__}")
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"success": False, "error": f"Failed to regenerate link: {str(e)}"}
+        )

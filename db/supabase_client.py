@@ -1,4 +1,5 @@
 import logging
+import secrets
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any
 from supabase import create_client, Client
@@ -66,13 +67,55 @@ class SupabaseService:
             logger.error(f"Error retrieving credentials for tenant {tenant_id}: {e}")
             return None
 
+    async def get_tenant_id_by_url_token(self, url_token: str) -> Optional[str]:
+        """
+        Looks up tenants table by url_token, returns id (tenant_id) or None if
+        not found / tenant.is_active is False. Single indexed query.
+        """
+        if not self.client or not url_token:
+            return None
+        try:
+            res = self.client.table("tenants").select("id, is_active").eq("url_token", url_token).execute()
+            if res.data and len(res.data) > 0:
+                record = res.data[0]
+                if record.get("is_active", False):
+                    return record["id"]
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching tenant by url_token: {e}")
+            return None
+
+    async def rotate_url_token(self, tenant_id: str) -> str:
+        """
+        Generates secrets.token_urlsafe(24), updates tenants.url_token for that
+        tenant_id, returns the new token. Retries once on unique-constraint collision.
+        """
+        if not self.client:
+            raise RuntimeError("Supabase client is not configured")
+
+        for attempt in range(2):
+            new_token = secrets.token_urlsafe(24)
+            try:
+                self.client.table("tenants").update({
+                    "url_token": new_token
+                }).eq("id", tenant_id).execute()
+                logger.info(f"Successfully rotated url_token for tenant {tenant_id}")
+                return new_token
+            except Exception as e:
+                if attempt == 0:
+                    logger.warning(f"Collision or error rotating url_token for tenant {tenant_id}, retrying: {e}")
+                    continue
+                logger.error(f"Failed to rotate url_token for tenant {tenant_id}: {e}")
+                raise
+
     async def save_tenant_credentials(
         self,
         tenant_id: str,
         company_name: str,
         email: str,
         password: str,
-        key_version: Optional[int] = None
+        key_version: Optional[int] = None,
+        url_token: Optional[str] = None
     ) -> bool:
         """Create or update tenant and store encrypted credentials."""
         if not self.client:
@@ -84,11 +127,14 @@ class SupabaseService:
 
         try:
             # 1. Upsert tenant
-            self.client.table("tenants").upsert({
+            tenant_payload: Dict[str, Any] = {
                 "id": tenant_id,
                 "company_name": company_name,
                 "is_active": True
-            }).execute()
+            }
+            if url_token:
+                tenant_payload["url_token"] = url_token
+            self.client.table("tenants").upsert(tenant_payload).execute()
 
             # 2. Upsert credentials
             self.client.table("tenant_credentials").upsert({

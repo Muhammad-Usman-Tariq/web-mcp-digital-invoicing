@@ -28,3 +28,6 @@ Thumbs.db
 test-results/
 playwright-report/
 blob-report/
+
+# Debugging
+debug_screenshots/
