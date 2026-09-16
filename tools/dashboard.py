@@ -2,7 +2,7 @@ import re
 import logging
 from typing import Dict, Any, List
 from core.config import settings
-from browser.manager import browser_manager
+from browser.manager import browser_manager, close_blocking_overlays
 from browser.selectors import PortalRoutes, DashboardLocators
 from .base import mcp_tool_handler
 
@@ -18,6 +18,7 @@ async def get_dashboard_snapshot() -> Dict[str, Any]:
     dashboard_url = f"{settings.PORTAL_BASE_URL.rstrip('/')}{PortalRoutes.DASHBOARD}"
     async with browser_manager.get_tenant_page() as page:
         await page.goto(dashboard_url, wait_until="networkidle", timeout=settings.NAVIGATION_TIMEOUT_MS)
+        await close_blocking_overlays(page)
 
         metrics: Dict[str, str] = {}
         quick_actions: List[Dict[str, str]] = []
@@ -35,14 +36,22 @@ async def get_dashboard_snapshot() -> Dict[str, Any]:
                 stat_loc = page.get_by_text(stat_title, exact=True).first
                 if await stat_loc.is_visible(timeout=1500):
                     # Walk up to parent card element to extract associated count
-                    parent_text = await stat_loc.locator("xpath=..").inner_text()
-                    lines = [line.strip() for line in parent_text.split("\n") if line.strip()]
-                    # Usually card format is [Title, Value] or [Value, Title]
+                    card = stat_loc.locator("xpath=ancestor::*[contains(@class, 'rounded') or contains(@class, 'card')][1]")
+                    if not await card.is_visible(timeout=500):
+                        card = stat_loc.locator("xpath=../..")
+
                     val = "0"
-                    for line in lines:
-                        if line != stat_title and (line.replace(",", "").isdigit() or any(c.isdigit() for c in line)):
-                            val = line
-                            break
+                    # Try locating prominent number element (.text-2xl or font-bold) inside the card
+                    num_loc = card.locator(".text-2xl, [class*='font-bold']").first
+                    if await num_loc.is_visible(timeout=500):
+                        val = (await num_loc.inner_text()).strip()
+                    else:
+                        parent_text = await card.inner_text()
+                        lines = [line.strip() for line in parent_text.split("\n") if line.strip()]
+                        for line in lines:
+                            if line != stat_title and (line.replace(",", "").isdigit() or any(c.isdigit() for c in line)):
+                                val = line
+                                break
                     metrics[stat_title] = val
             except Exception as e:
                 logger.debug(f"Could not extract stat '{stat_title}': {e}")

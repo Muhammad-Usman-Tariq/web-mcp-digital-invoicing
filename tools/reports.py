@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 from core.config import settings
-from browser.manager import browser_manager, ElementNotFoundError
+from browser.manager import browser_manager, ElementNotFoundError, close_blocking_overlays
 from browser.selectors import PortalRoutes, ReportsLocators
 from .base import mcp_tool_handler
 
@@ -33,6 +33,7 @@ async def filter_report_by_date_range(
     report_url = f"{settings.PORTAL_BASE_URL.rstrip('/')}{PortalRoutes.REPORTS}"
     async with browser_manager.get_tenant_page() as page:
         await page.goto(report_url, wait_until="networkidle", timeout=settings.NAVIGATION_TIMEOUT_MS)
+        await close_blocking_overlays(page)
 
         # 1. Open duration calendar picker
         duration_btn = page.get_by_role("button", name=ReportsLocators.SELECT_DURATION_BUTTON[1]).first
@@ -110,6 +111,7 @@ async def export_report_view(export_format: str = "csv") -> Dict[str, Any]:
     async with browser_manager.get_tenant_page() as page:
         if "/dashboard/reports" not in page.url:
             await page.goto(report_url, wait_until="networkidle", timeout=settings.NAVIGATION_TIMEOUT_MS)
+        await close_blocking_overlays(page)
 
         export_btn = page.get_by_role("button", name=ReportsLocators.EXPORT_CSV_BUTTON[1]).first
         if not await export_btn.is_visible(timeout=4000):

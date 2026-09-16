@@ -2,7 +2,7 @@ import re
 import logging
 from typing import Dict, Any, List, Optional
 from core.config import settings
-from browser.manager import browser_manager, ElementNotFoundError
+from browser.manager import browser_manager, ElementNotFoundError, close_blocking_overlays
 from browser.selectors import (
     PortalRoutes,
     InvoiceListLocators,
@@ -23,6 +23,7 @@ async def get_failed_invoices_details(limit: int = 50, fetch_reasons: bool = Fal
     failed_url = f"{settings.PORTAL_BASE_URL.rstrip('/')}{PortalRoutes.INVOICES_FAILED}"
     async with browser_manager.get_tenant_page() as page:
         await page.goto(failed_url, wait_until="networkidle", timeout=settings.NAVIGATION_TIMEOUT_MS)
+        await close_blocking_overlays(page)
 
         # Look for table
         table = page.locator("table").first
@@ -91,6 +92,7 @@ async def bulk_validate_invoices(
     invoices_url = f"{settings.PORTAL_BASE_URL.rstrip('/')}{PortalRoutes.INVOICES}"
     async with browser_manager.get_tenant_page() as page:
         await page.goto(invoices_url, wait_until="networkidle", timeout=settings.NAVIGATION_TIMEOUT_MS)
+        await close_blocking_overlays(page)
 
         rows = await page.locator("table tbody tr").all()
         if not rows:
@@ -156,36 +158,181 @@ async def bulk_validate_invoices(
             "message": f"Successfully triggered validation on {len(validated_invoices)} invoices."
         }
 
-@mcp_tool_handler("edit_draft_invoice_field")
-async def edit_draft_invoice_field(
-    invoice_id: str,
-    field_name: str,
-    new_value: str
-) -> Dict[str, Any]:
+from datetime import datetime
+
+def _date_matches(input_date: str, table_date: str) -> bool:
+    """Check if input_date matches the table date string across common formats."""
+    inp = input_date.strip().lower()
+    tbl = table_date.strip().lower()
+    if inp in tbl or tbl in inp:
+        return True
+
+    # Try parsing common date formats
+    date_formats_input = [
+        "%Y-%m-%d", "%d-%b-%Y", "%d-%B-%Y", "%d/%m/%Y", "%m/%d/%Y",
+        "%d %b %Y", "%d %B %Y", "%B %d, %Y", "%b %d, %Y"
+    ]
+    date_formats_table = [
+        "%d-%b-%Y", "%d-%B-%Y", "%Y-%m-%d"
+    ]
+
+    parsed_inp = None
+    for fmt in date_formats_input:
+        try:
+            parsed_inp = datetime.strptime(input_date.strip(), fmt).date()
+            break
+        except ValueError:
+            pass
+
+    parsed_tbl = None
+    for fmt in date_formats_table:
+        try:
+            parsed_tbl = datetime.strptime(table_date.strip(), fmt).date()
+            break
+        except ValueError:
+            pass
+
+    if parsed_inp and parsed_tbl:
+        return parsed_inp == parsed_tbl
+
+    return False
+
+def _amount_matches(input_amount: Optional[float], table_amount_str: str) -> bool:
+    """Check if input amount matches table amount within 0.01 tolerance."""
+    if input_amount is None:
+        return True
+    clean_str = re.sub(r"[^\d.]", "", table_amount_str)
+    try:
+        tbl_val = float(clean_str)
+        return abs(tbl_val - float(input_amount)) < 0.01
+    except (ValueError, TypeError):
+        return False
+
+@mcp_tool_handler("list_draft_invoices")
+async def list_draft_invoices(limit: int = 50) -> Dict[str, Any]:
     """
-    Locates a draft invoice by ID, opens Invoice Studio via Actions -> Edit Invoice,
-    updates the specified field, and saves changes.
+    Lists draft invoices with their real, matchable fields (sr_number, date, buyer, amount, type, status).
+    Call this tool FIRST to obtain valid buyer names and dates to pass into edit_draft_invoice_field.
     """
     drafts_url = f"{settings.PORTAL_BASE_URL.rstrip('/')}{PortalRoutes.INVOICES_DRAFT}"
     async with browser_manager.get_tenant_page() as page:
         await page.goto(drafts_url, wait_until="networkidle", timeout=settings.NAVIGATION_TIMEOUT_MS)
+        await close_blocking_overlays(page)
 
-        # Locate row with invoice_id
-        row = page.locator(f"table tbody tr:has-text('{invoice_id}')").first
-        if not await row.is_visible(timeout=4000):
-            raise ElementNotFoundError(f"Invoice '{invoice_id}' not found in draft list.")
+        table = page.locator("table").first
+        if not await table.is_visible(timeout=5000):
+            return {
+                "total_drafts": 0,
+                "drafts": [],
+                "message": "No invoices table found on drafts page."
+            }
+
+        rows = await page.locator("table tbody tr").all()
+        drafts: List[Dict[str, Any]] = []
+
+        for row in rows[:limit]:
+            cols = [await td.inner_text() for td in await row.locator("td").all()]
+            if len(cols) >= 6:
+                drafts.append({
+                    "sr_number": cols[0].strip(),
+                    "date": cols[2].strip(),
+                    "type": cols[3].strip(),
+                    "buyer": cols[4].strip(),
+                    "amount": cols[5].strip(),
+                    "status": cols[6].strip() if len(cols) > 6 else "Draft"
+                })
+
+        return {
+            "total_drafts": len(drafts),
+            "drafts": drafts,
+            "current_url": page.url
+        }
+
+@mcp_tool_handler("edit_draft_invoice_field")
+async def edit_draft_invoice_field(
+    buyer_name: str,
+    date: str,
+    field_name: str,
+    new_value: str,
+    amount: Optional[float] = None
+) -> Dict[str, Any]:
+    """
+    Locates a draft invoice by buyer name and date (and optionally amount, if multiple
+    drafts share the same buyer+date), then opens Invoice Studio to edit the specified field.
+    """
+    drafts_url = f"{settings.PORTAL_BASE_URL.rstrip('/')}{PortalRoutes.INVOICES_DRAFT}"
+    async with browser_manager.get_tenant_page() as page:
+        await page.goto(drafts_url, wait_until="networkidle", timeout=settings.NAVIGATION_TIMEOUT_MS)
+        await close_blocking_overlays(page)
+
+        table = page.locator("table").first
+        if not await table.is_visible(timeout=5000):
+            raise ElementNotFoundError(f"Invoices table not found on {page.url}")
+
+        rows = await page.locator("table tbody tr").all()
+        matched_candidates = []
+
+        for idx, row in enumerate(rows):
+            cols = [await td.inner_text() for td in await row.locator("td").all()]
+            if len(cols) >= 6:
+                row_sr = cols[0].strip()
+                row_date = cols[2].strip()
+                row_buyer = cols[4].strip()
+                row_amount = cols[5].strip()
+
+                buyer_match = buyer_name.lower().strip() in row_buyer.lower().strip()
+                date_match = _date_matches(date, row_date)
+
+                if buyer_match and date_match:
+                    matched_candidates.append({
+                        "index": idx,
+                        "row": row,
+                        "sr_number": row_sr,
+                        "date": row_date,
+                        "buyer": row_buyer,
+                        "amount": row_amount
+                    })
+
+        if not matched_candidates:
+            raise ElementNotFoundError(
+                f"No draft invoice found matching buyer='{buyer_name}' and date='{date}'. "
+                "Call tool_list_draft_invoices first to see the currently available drafts."
+            )
+
+        # If amount specified, filter candidates
+        if amount is not None:
+            filtered = [c for c in matched_candidates if _amount_matches(amount, c["amount"])]
+            if filtered:
+                matched_candidates = filtered
+
+        # Check for ambiguity
+        if len(matched_candidates) > 1:
+            candidate_list = [
+                {"sr_number": c["sr_number"], "buyer": c["buyer"], "date": c["date"], "amount": c["amount"]}
+                for c in matched_candidates
+            ]
+            raise ValueError(
+                f"Multiple draft invoices match buyer='{buyer_name}' and date='{date}'. "
+                f"Found {len(matched_candidates)} candidates: {candidate_list}. "
+                "Please specify the exact 'amount' parameter to disambiguate."
+            )
+
+        target_candidate = matched_candidates[0]
+        target_row = target_candidate["row"]
 
         # Click Actions button
-        actions_btn = row.get_by_role("button", name=InvoiceListLocators.ROW_ACTIONS_BUTTON_TEXT).first
+        actions_btn = target_row.get_by_role("button", name=InvoiceListLocators.ROW_ACTIONS_BUTTON_TEXT).first
         if not await actions_btn.is_visible(timeout=2000):
-            actions_btn = row.locator("button:has-text('Actions')").first
+            actions_btn = target_row.locator("button:has-text('Actions')").first
         await actions_btn.click()
         await page.wait_for_timeout(300)
 
         # Click Edit Invoice
         edit_opt = page.get_by_text(InvoiceListLocators.ACTION_MENU_EDIT_INVOICE, exact=True).first
         if not await edit_opt.is_visible(timeout=2000):
-            raise ElementNotFoundError(f"Edit Invoice action not available for invoice '{invoice_id}'.")
+            raise ElementNotFoundError(
+                f"Edit Invoice action not available for draft (SR# {target_candidate['sr_number']}, Buyer: {target_candidate['buyer']})."
+            )
         await edit_opt.click()
 
         await page.wait_for_load_state("networkidle", timeout=settings.NAVIGATION_TIMEOUT_MS)
@@ -219,17 +366,29 @@ async def edit_draft_invoice_field(
 
         await input_target.fill(new_value)
 
-        # Click Save button
-        save_btn = page.get_by_role("button", name=InvoiceStudioLocators.SAVE_BUTTON[1]).first
+        # Click Save button ('Save Only' or 'Save')
+        save_btn = page.get_by_role("button", name=re.compile(r"^(Save Only|Save)$", re.I)).first
+        if not await save_btn.is_visible(timeout=2000):
+            save_btn = page.locator("button:has-text('Save Only'), button:has-text('Save')").first
+
         if await save_btn.is_visible(timeout=2000):
             await save_btn.click()
         else:
             await page.keyboard.press("Enter")
 
-        await page.wait_for_load_state("networkidle", timeout=settings.NAVIGATION_TIMEOUT_MS)
+        try:
+            await page.wait_for_load_state("networkidle", timeout=5000)
+        except Exception:
+            pass
+        await page.wait_for_timeout(1000)
 
         return {
-            "invoice_id": invoice_id,
+            "matched_invoice": {
+                "sr_number": target_candidate["sr_number"],
+                "buyer": target_candidate["buyer"],
+                "date": target_candidate["date"],
+                "amount": target_candidate["amount"]
+            },
             "field_name": field_name,
             "new_value": new_value,
             "status": "saved",

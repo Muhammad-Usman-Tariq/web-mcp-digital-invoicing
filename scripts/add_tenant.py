@@ -4,7 +4,7 @@ CLI Utility to safely onboard a tenant's credentials into Supabase.
 Credentials are encrypted using AES-256-GCM before writing to the database.
 
 Usage:
-  python scripts/add_tenant.py --tenant-id <UUID> --company-name "Acme Corp" --email user@example.com --password mypass
+  python scripts/add_tenant.py --tenant-id <TENANT_ID> --company-name "Acme Corp" --email user@example.com --password mypass
 """
 
 import sys
@@ -21,7 +21,7 @@ from db.supabase_client import db_service
 
 async def main():
     parser = argparse.ArgumentParser(description="Securely onboard a tenant to digital-invoice-web.")
-    parser.add_argument("--tenant-id", help="Tenant UUID (must match the tenant_id claim in Central Auth JWT)")
+    parser.add_argument("--tenant-id", help="Tenant ID (must match the sub or tenant_id claim in Central Auth JWT)")
     parser.add_argument("--company-name", help="Company Name")
     parser.add_argument("--email", help="Login email for digitalinvoicingsoftware.com")
     parser.add_argument("--password", help="Login password for digitalinvoicingsoftware.com")
@@ -36,7 +36,7 @@ async def main():
         print("ERROR: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is not configured in .env.")
         sys.exit(1)
 
-    tenant_id = args.tenant_id or input("Enter Tenant UUID (matching Central Auth JWT tenant_id): ").strip()
+    tenant_id = args.tenant_id or input("Enter Tenant ID (matching Central Auth JWT sub/tenant_id): ").strip()
     company_name = args.company_name or input("Enter Company Name: ").strip()
     email = args.email or input("Enter Portal Login Email: ").strip()
     password = args.password or getpass.getpass("Enter Portal Login Password: ").strip()

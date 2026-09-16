@@ -56,6 +56,10 @@ class Settings(BaseSettings):
         default=True,
         description="Run Chromium in headless mode"
     )
+    SLOW_MO_MS: int = Field(
+        default=500,
+        description="Milliseconds to slow down each Playwright action by, only applied when HEADLESS=false. Useful for visually debugging login/automation flows."
+    )
     MAX_CONCURRENT_BROWSERS: int = Field(
         default=3,
         description="Max concurrent Playwright contexts allowed"

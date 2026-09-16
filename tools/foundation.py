@@ -1,7 +1,7 @@
 import base64
 from typing import Dict, Any
 from core.config import settings
-from browser.manager import browser_manager
+from browser.manager import browser_manager, close_blocking_overlays
 from browser.selectors import PortalRoutes
 from .base import mcp_tool_handler
 
@@ -12,6 +12,7 @@ async def check_login_status() -> Dict[str, Any]:
     Attempts to access the dashboard and confirms absence of login redirect.
     """
     async with browser_manager.get_tenant_page() as page:
+        await close_blocking_overlays(page)
         current_url = page.url
         title = await page.title()
         is_logged_in = "/login" not in current_url.lower()
@@ -26,7 +27,9 @@ async def check_login_status() -> Dict[str, Any]:
 @mcp_tool_handler("navigate_to_section")
 async def navigate_to_section(section: str) -> Dict[str, Any]:
     """
-    Navigate directly to a known section of the portal.
+    Diagnostic tool to test whether a known portal section or relative path loads without error.
+    IMPORTANT ARCHITECTURAL NOTE: Each tool call operates on a fresh, isolated browser context.
+    Calling this tool does NOT persist the page location for subsequent tool calls.
     Supported sections: dashboard, invoices, failed_invoices, draft_invoices, reports,
     buyers, users, roles, settings, scenarios_testing, docs.
     """
@@ -56,19 +59,25 @@ async def navigate_to_section(section: str) -> Dict[str, Any]:
     target_url = f"{settings.PORTAL_BASE_URL.rstrip('/')}{target_path}"
     async with browser_manager.get_tenant_page() as page:
         await page.goto(target_url, wait_until="networkidle", timeout=settings.NAVIGATION_TIMEOUT_MS)
+        await close_blocking_overlays(page)
         return {
             "section": section,
             "final_url": page.url,
-            "page_title": await page.title()
+            "page_title": await page.title(),
+            "note": "Context closed after invocation. Subsequent tool calls will open fresh isolated browser sessions."
         }
 
 @mcp_tool_handler("get_page_text")
-async def get_page_text(max_chars: int = 4000) -> Dict[str, Any]:
+async def get_page_text(path: str = "/dashboard", max_chars: int = 4000) -> Dict[str, Any]:
     """
-    Diagnostic tool to inspect visible DOM text of current view.
-    Vital for inspecting page structure, headings, and tables during setup without guesswork.
+    Navigate to the given path on the portal (relative, e.g. '/buyers', '/dashboard/reports', '/invoices')
+    and return the visible page text. Defaults to '/dashboard' if no path is given.
     """
+    target_path = path if path.startswith("/") else f"/{path}"
+    target_url = f"{settings.PORTAL_BASE_URL.rstrip('/')}{target_path}"
     async with browser_manager.get_tenant_page() as page:
+        await page.goto(target_url, wait_until="networkidle", timeout=settings.NAVIGATION_TIMEOUT_MS)
+        await close_blocking_overlays(page)
         # Extract text from main container or body
         body_handle = await page.query_selector("main, #app, #root, body")
         if body_handle:
@@ -78,6 +87,7 @@ async def get_page_text(max_chars: int = 4000) -> Dict[str, Any]:
         
         trimmed = text.strip()[:max_chars]
         return {
+            "path": target_path,
             "current_url": page.url,
             "page_title": await page.title(),
             "character_count": len(trimmed),
@@ -85,15 +95,20 @@ async def get_page_text(max_chars: int = 4000) -> Dict[str, Any]:
         }
 
 @mcp_tool_handler("take_screenshot")
-async def take_screenshot(full_page: bool = False) -> Dict[str, Any]:
+async def take_screenshot(path: str = "/dashboard", full_page: bool = False) -> Dict[str, Any]:
     """
-    Diagnostic tool capturing a screenshot of the current portal view as a base64 PNG data URL.
-    Used for verifying UI layouts, inspecting elements, or troubleshooting unexpected dialogs.
+    Navigate to the given path on the portal (relative, e.g. '/buyers', '/dashboard/reports', '/invoices')
+    and capture a screenshot as a base64 PNG data URL. Defaults to '/dashboard' if no path is given.
     """
+    target_path = path if path.startswith("/") else f"/{path}"
+    target_url = f"{settings.PORTAL_BASE_URL.rstrip('/')}{target_path}"
     async with browser_manager.get_tenant_page() as page:
+        await page.goto(target_url, wait_until="networkidle", timeout=settings.NAVIGATION_TIMEOUT_MS)
+        await close_blocking_overlays(page)
         screenshot_bytes = await page.screenshot(full_page=full_page)
         b64_img = base64.b64encode(screenshot_bytes).decode("ascii")
         return {
+            "path": target_path,
             "current_url": page.url,
             "page_title": await page.title(),
             "mime_type": "image/png",

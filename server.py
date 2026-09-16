@@ -19,6 +19,7 @@ from tools.foundation import (
 )
 from tools.dashboard import get_dashboard_snapshot
 from tools.invoices import (
+    list_draft_invoices,
     get_failed_invoices_details,
     bulk_validate_invoices,
     edit_draft_invoice_field,
@@ -29,6 +30,7 @@ from tools.reports import (
     export_report_view
 )
 from tools.users import add_new_user
+from tools.buyers import list_buyers
 
 from routes.onboarding import router as onboarding_router
 
@@ -54,18 +56,23 @@ async def tool_check_login_status():
 
 @mcp.tool()
 async def tool_navigate_to_section(section: str):
-    """Navigate to a specific section of the portal (e.g. dashboard, invoices, failed_invoices, draft_invoices, reports, users, settings)."""
+    """Test whether a specific section or path of the portal loads without error. NOTE: Each tool call operates in an isolated browser context, so navigating here does NOT leave the browser on this page for subsequent tool calls."""
     return await navigate_to_section(section=section)
 
 @mcp.tool()
-async def tool_get_page_text(max_chars: int = 4000):
-    """Inspect visible DOM text content of the current portal view for element discovery and diagnostics."""
-    return await get_page_text(max_chars=max_chars)
+async def tool_get_page_text(path: str = "/dashboard", max_chars: int = 4000):
+    """Navigate to the given portal path (e.g. '/buyers', '/dashboard/reports', '/invoices') and return visible DOM text content."""
+    return await get_page_text(path=path, max_chars=max_chars)
 
 @mcp.tool()
-async def tool_take_screenshot(full_page: bool = False):
-    """Capture a diagnostic PNG screenshot of the current portal view returned as a base64 data URL."""
-    return await take_screenshot(full_page=full_page)
+async def tool_take_screenshot(path: str = "/dashboard", full_page: bool = False):
+    """Navigate to the given portal path and capture a diagnostic PNG screenshot returned as a base64 data URL."""
+    return await take_screenshot(path=path, full_page=full_page)
+
+@mcp.tool()
+async def tool_list_buyers():
+    """Return all buyers configured for this tenant with business name, address, registration type, NTN/CNIC, STRN, province, and active status."""
+    return await list_buyers()
 
 # --- High Priority Tools ---
 @mcp.tool()
@@ -90,9 +97,26 @@ async def tool_bulk_validate_invoices(invoice_ids: Optional[List[str]] = None, s
     return await bulk_validate_invoices(invoice_ids=invoice_ids, select_all=select_all)
 
 @mcp.tool()
-async def tool_edit_draft_invoice_field(invoice_id: str, field_name: str, new_value: str):
-    """Locate a draft invoice by ID, edit a specific field, and save changes."""
-    return await edit_draft_invoice_field(invoice_id=invoice_id, field_name=field_name, new_value=new_value)
+async def tool_list_draft_invoices(limit: int = 50):
+    """List draft invoices from the portal with real matchable fields (sr_number, date, buyer, amount, type, status). Call this before editing drafts."""
+    return await list_draft_invoices(limit=limit)
+
+@mcp.tool()
+async def tool_edit_draft_invoice_field(
+    buyer_name: str,
+    date: str,
+    field_name: str,
+    new_value: str,
+    amount: Optional[float] = None
+):
+    """Locate a draft invoice by buyer name and date (and optionally amount for disambiguation), edit a field in Invoice Studio, and save."""
+    return await edit_draft_invoice_field(
+        buyer_name=buyer_name,
+        date=date,
+        field_name=field_name,
+        new_value=new_value,
+        amount=amount
+    )
 
 @mcp.tool()
 async def tool_add_new_user(
@@ -136,9 +160,16 @@ async def lifespan(app: FastAPI):
 
     logger.info("Initializing Playwright browser pool on server startup...")
     await browser_manager.start()
-    yield
-    logger.info("Closing Playwright browser pool on server shutdown...")
-    await browser_manager.stop()
+    try:
+        if getattr(mcp.session_manager, "_has_started", False) and mcp.session_manager._task_group is None:
+            mcp.session_manager._has_started = False
+        async with mcp.session_manager.run():
+            yield
+    finally:
+        if getattr(mcp.session_manager, "_has_started", False):
+            mcp.session_manager._has_started = False
+        logger.info("Closing Playwright browser pool on server shutdown...")
+        await browser_manager.stop()
 
 # 4. Initialize FastAPI Application
 app = FastAPI(
@@ -148,16 +179,7 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# 5. Add Drop-in Central Auth Verification Middleware
-app.add_middleware(
-    McpAuthMiddleware,
-    jwks_uri=settings.JWKS_URI,
-    audience=settings.MCP_AUTH_AUDIENCE,
-    revocations_uri=settings.REVOCATIONS_URI,
-    exempt_paths=["/health", "/healthz", "/docs", "/openapi.json", "/onboarding"]
-)
-
-# 6. Middleware to extract tenant claims into contextvars
+# 5. Middleware to extract tenant claims into contextvars (registered first so it runs after McpAuthMiddleware)
 @app.middleware("http")
 async def extract_tenant_context(request: Request, call_next):
     try:
@@ -168,6 +190,15 @@ async def extract_tenant_context(request: Request, call_next):
         return response
     finally:
         clear_context()
+
+# 6. Add Drop-in Central Auth Verification Middleware (registered second so it runs as the outer layer)
+app.add_middleware(
+    McpAuthMiddleware,
+    jwks_uri=settings.JWKS_URI,
+    audience=settings.MCP_AUTH_AUDIENCE,
+    revocations_uri=settings.REVOCATIONS_URI,
+    exempt_paths=["/health", "/healthz", "/docs", "/openapi.json", "/onboarding"]
+)
 
 # 7. Unauthenticated Health Check Endpoint for VPS / Coolify Monitoring
 @app.get("/health", tags=["Monitoring"])
@@ -183,10 +214,15 @@ async def health_check():
 # 8. Include Onboarding Web UI Router
 app.include_router(onboarding_router)
 
-# 9. Mount MCP SSE and Streamable HTTP Transports
+# 9. Register MCP Streamable HTTP and SSE Transports
 sec_settings = TransportSecuritySettings(enable_dns_rebinding_protection=False)
-app.mount("/mcp", mcp.streamable_http_app())
-app.mount("", mcp.sse_app(transport_security=sec_settings))
+streamable_app = mcp.streamable_http_app(transport_security=sec_settings)
+sse_app = mcp.sse_app(transport_security=sec_settings)
+
+for route in streamable_app.routes:
+    app.routes.append(route)
+for route in sse_app.routes:
+    app.routes.append(route)
 
 if __name__ == "__main__":
     import uvicorn

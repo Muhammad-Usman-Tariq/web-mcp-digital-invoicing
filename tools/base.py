@@ -15,6 +15,12 @@ def mcp_tool_handler(tool_name: str):
     3. Structured JSON output (success=True/False)
     4. Graceful error handling (no stack traces, no leaked credentials)
     5. Asynchronous persistence to tool_call_logs table
+
+    IMPORTANT ARCHITECTURAL NOTE:
+    Each tool call operates on a fresh, isolated browser context — no navigation or
+    page state persists between separate tool calls. Any tool that needs to read or
+    act on a specific page must perform its own complete navigation internally;
+    do not design tools that assume a previous tool call already navigated somewhere.
     """
     def decorator(func: Callable):
         @functools.wraps(func)

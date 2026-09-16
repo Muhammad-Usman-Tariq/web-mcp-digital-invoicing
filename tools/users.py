@@ -4,7 +4,7 @@ import string
 import logging
 from typing import Dict, Any, Optional
 from core.config import settings
-from browser.manager import browser_manager, ElementNotFoundError
+from browser.manager import browser_manager, ElementNotFoundError, close_blocking_overlays
 from browser.selectors import PortalRoutes, UsersLocators
 from .base import mcp_tool_handler
 
@@ -33,6 +33,7 @@ async def add_new_user(
 
     async with browser_manager.get_tenant_page() as page:
         await page.goto(users_url, wait_until="networkidle", timeout=settings.NAVIGATION_TIMEOUT_MS)
+        await close_blocking_overlays(page)
 
         # 1. Click "Add User" button
         add_btn = page.get_by_role("button", name=UsersLocators.ADD_USER_BUTTON[1]).first
