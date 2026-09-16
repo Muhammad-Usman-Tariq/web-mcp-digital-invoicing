@@ -429,30 +429,7 @@
         </div>
     </div>
 
-    <!-- Test Portal Connection Card -->
-    <div class="card">
-        <div class="card-header">
-            <h2 class="card-title" style="font-size: 1.25rem;">Test Portal Connection</h2>
-            <p class="card-subtitle">
-                Verify that this server can successfully log in to digitalinvoicingsoftware.com using your saved credentials.
-            </p>
-        </div>
 
-        <div id="test-result-box" style="display: none; margin-bottom: 16px;"></div>
-
-        <div style="display: flex; align-items: center; gap: 12px;">
-            <button id="btn-test-connection" class="btn btn-secondary" onclick="runConnectionTest('{{ tenant_id }}')">
-                <svg id="test-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
-                    <polyline points="22 4 12 14.01 9 11.01"></polyline>
-                </svg>
-                <span id="test-btn-label">Test Connection</span>
-            </button>
-            <span style="font-size: 0.825rem; color: var(--text-muted);">
-                Runs automated browser login verification (~3–5s)
-            </span>
-        </div>
-    </div>
 
     <!-- Rotate / Regenerate Server Link Card -->
     <div class="card">
@@ -513,73 +490,7 @@
         if (targetContent) targetContent.classList.add('active');
     }
 
-    async function runConnectionTest(tenantId) {
-        const btn = document.getElementById('btn-test-connection');
-        const label = document.getElementById('test-btn-label');
-        const icon = document.getElementById('test-icon');
-        const resultBox = document.getElementById('test-result-box');
 
-        btn.disabled = true;
-        label.textContent = 'Testing connection...';
-        icon.innerHTML = '<circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none" stroke-dasharray="31.4" stroke-dashoffset="10"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/></circle>';
-
-        try {
-            const formData = new FormData();
-            formData.append('tenant_id', tenantId);
-
-            const resp = await fetch('/onboarding/test-connection', {
-                method: 'POST',
-                body: formData
-            });
-            const data = await resp.json();
-
-            resultBox.style.display = 'block';
-            if (data.success && data.is_logged_in) {
-                resultBox.className = 'alert alert-success';
-                resultBox.innerHTML = `
-                    <span style="font-size: 1.15rem;">✓</span>
-                    <div>
-                        <strong>Portal Connection Successful</strong><br>
-                        Authenticated session verified on digitalinvoicingsoftware.com.
-                    </div>
-                `;
-                showToast('Portal connection verified successfully!', true);
-            } else if (data.success && !data.is_logged_in) {
-                resultBox.className = 'alert alert-warning';
-                resultBox.innerHTML = `
-                    <span style="font-size: 1.15rem;">⚠</span>
-                    <div>
-                        <strong>Portal Login Unsuccessful:</strong> The portal rejected these credentials or returned to the login page.<br>
-                        <span style="font-size: 0.8rem;">Please verify your email and password.</span>
-                    </div>
-                `;
-                showToast('Login rejected by portal', false);
-            } else {
-                resultBox.className = 'alert alert-error';
-                resultBox.innerHTML = `
-                    <span style="font-size: 1.15rem;">✕</span>
-                    <div>
-                        <strong>Test Failed:</strong> ${data.error || 'Unknown error occurred during session check.'}
-                    </div>
-                `;
-                showToast('Connection test failed', false);
-            }
-        } catch (err) {
-            resultBox.style.display = 'block';
-            resultBox.className = 'alert alert-error';
-            resultBox.innerHTML = `
-                <span style="font-size: 1.15rem;">✕</span>
-                <div>
-                    <strong>Network Error:</strong> Failed to communicate with test endpoint (${err.message}).
-                </div>
-            `;
-            showToast('Network error during test', false);
-        } finally {
-            btn.disabled = false;
-            label.textContent = 'Retest Connection';
-            icon.innerHTML = '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline>';
-        }
-    }
 
     async function runRegenerateLink(event) {
         event.preventDefault();
