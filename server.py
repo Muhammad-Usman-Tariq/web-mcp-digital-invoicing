@@ -1,13 +1,15 @@
 import logging
 from contextlib import asynccontextmanager
-from typing import List, Optional
+from typing import List, Optional, Dict
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from starlette.types import Scope, Receive, Send
+from starlette.routing import Mount
 from mcp.server.mcpserver import MCPServer
-from mcp.server.sse import TransportSecuritySettings
+from mcp.server.sse import SseServerTransport, TransportSecuritySettings
 
 from core.config import settings, validate_critical_settings
-from core.context import set_current_auth_claims, set_current_tenant_id, clear_context
+from core.context import set_current_auth_claims, set_current_tenant_id, get_current_tenant_id, clear_context
 from db.supabase_client import db_service
 from sdk.python.mcp_auth_middleware import McpAuthMiddleware
 from browser.manager import browser_manager
@@ -253,6 +255,38 @@ async def health_check():
 # 8. Include Onboarding Web UI Router
 app.include_router(onboarding_router)
 
+# In-memory mapping: session_id (hex str) -> tenant_id
+# NOTE: This in-memory mapping is suitable for single-process deployments.
+# Before moving to multi-process / multi-worker deployments, migrate this to a shared cache like Redis.
+_sse_session_tenants: Dict[str, str] = {}
+
+class TenantAwareSseServerTransport(SseServerTransport):
+    """
+    SseServerTransport subclass that intercepts session_id generated inside connect_sse
+    and records session_id -> tenant_id in _sse_session_tenants for tenant-isolated message routing.
+    Cleans up session_id on connection disconnect.
+    """
+    @asynccontextmanager
+    async def connect_sse(self, scope: Scope, receive: Receive, send: Send):
+        existing_keys = set(self._read_stream_writers.keys())
+        async with super().connect_sse(scope, receive, send) as streams:
+            new_keys = set(self._read_stream_writers.keys()) - existing_keys
+            session_id = next(iter(new_keys)) if new_keys else None
+            tenant_id = get_current_tenant_id()
+            if session_id and tenant_id:
+                _sse_session_tenants[session_id.hex] = tenant_id
+                logger.debug(f"Mapped SSE session {session_id.hex} to tenant {tenant_id}")
+            try:
+                yield streams
+            finally:
+                if session_id:
+                    _sse_session_tenants.pop(session_id.hex, None)
+                    logger.debug(f"Cleaned up SSE session {session_id.hex}")
+
+# Patch SseServerTransport in mcpserver module before sse_app is instantiated
+from mcp.server.mcpserver import server as mcpserver_module
+mcpserver_module.SseServerTransport = TenantAwareSseServerTransport
+
 # 9. Register MCP Streamable HTTP and SSE Transports
 sec_settings = TransportSecuritySettings(enable_dns_rebinding_protection=False)
 streamable_app = mcp.streamable_http_app(
@@ -264,10 +298,48 @@ sse_app = mcp.sse_app(
     sse_path="/sse/{url_token}"
 )
 
+# Append streamable HTTP routes
 for route in streamable_app.routes:
     app.routes.append(route)
-for route in sse_app.routes:
-    app.routes.append(route)
+
+# Append only the parameterized SSE handshake GET route from sse_app
+sse_get_route = next(r for r in sse_app.routes if getattr(r, "path", None) == "/sse/{url_token}")
+app.routes.append(sse_get_route)
+
+# Extract the SseServerTransport instance created by sse_app
+raw_mount_route = next(r for r in sse_app.routes if getattr(r, "path", None) in ("/messages", "/messages/"))
+sse_transport = getattr(raw_mount_route.app, "__self__", None)
+
+async def messages_app(scope: Scope, receive: Receive, send: Send):
+    """
+    Tenant-resolved POST handler for SSE messages.
+    Validates session_id against _sse_session_tenants, sets current_tenant_id,
+    and delegates to sse_transport.handle_post_message.
+    """
+    if scope["type"] != "http":
+        return
+    request = Request(scope, receive)
+    session_id = request.query_params.get("session_id")
+    if not session_id or session_id not in _sse_session_tenants:
+        response = JSONResponse(
+            status_code=401,
+            content={
+                "error": "unauthorized",
+                "error_description": "Missing authentication token. Provide Bearer or x-api-key header."
+            },
+            headers={"WWW-Authenticate": f'Bearer realm="{settings.MCP_AUTH_AUDIENCE}", error="unauthorized"'}
+        )
+        return await response(scope, receive, send)
+
+    tenant_id = _sse_session_tenants[session_id]
+    set_current_tenant_id(tenant_id)
+    try:
+        await sse_transport.handle_post_message(scope, receive, send)
+    finally:
+        clear_context()
+
+# Mount custom tenant-resolved /messages route
+app.routes.append(Mount("/messages", app=messages_app))
 
 if __name__ == "__main__":
     import uvicorn

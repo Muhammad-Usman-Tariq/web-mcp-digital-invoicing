@@ -1,8 +1,9 @@
+import asyncio
 import json
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 from starlette.testclient import TestClient
-from server import app
+from server import app, _sse_session_tenants, sse_transport
 from core.context import set_current_tenant_id, get_current_tenant_id
 from db.supabase_client import SupabaseService
 from routes.onboarding import verify_tenant_credentials
@@ -306,3 +307,255 @@ async def test_supabase_service_url_token_methods():
     assert isinstance(new_token, str)
     assert len(new_token) >= 24
     update_mock.update.assert_called_once()
+
+@pytest.mark.asyncio
+async def test_sse_handshake_establishes_session_and_records_tenant():
+    """
+    Test: GET /sse/{url_token} with valid auth establishes a session and the
+    session's tenant is recorded correctly (mock db_service.get_tenant_id_by_url_token,
+    inspect _sse_session_tenants after connecting).
+    """
+    mock_claims = {"sub": "user_1", "aud": "digital-invoice-web", "tenant_id": "claims-tid"}
+    resolved_tenant = "tenant-sse-handshake-123"
+
+    with patch("jwt.PyJWKClient.get_signing_key_from_jwt", return_value=MagicMock(key="fake-key")), \
+         patch("jwt.decode", return_value=mock_claims), \
+         patch("server.db_service.get_tenant_id_by_url_token", new_callable=AsyncMock) as mock_lookup:
+        mock_lookup.return_value = resolved_tenant
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/sse/valid-sse-token",
+            "raw_path": b"/sse/valid-sse-token",
+            "query_string": b"",
+            "headers": [
+                (b"authorization", b"Bearer test-valid-token"),
+                (b"host", b"testserver"),
+            ]
+        }
+
+        async def receive():
+            await asyncio.Event().wait()
+            return {"type": "http.disconnect"}
+
+        async def send(message):
+            pass
+
+        task = asyncio.create_task(app(scope, receive, send))
+        try:
+            for _ in range(20):
+                await asyncio.sleep(0.01)
+                if any(t == resolved_tenant for t in _sse_session_tenants.values()):
+                    break
+
+            matching_sessions = [s for s, t in _sse_session_tenants.items() if t == resolved_tenant]
+            assert len(matching_sessions) == 1
+            session_id = matching_sessions[0]
+            assert _sse_session_tenants[session_id] == resolved_tenant
+        finally:
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, BaseException):
+                pass
+
+@pytest.mark.asyncio
+async def test_sse_multi_tenant_isolation_post_messages(mcp_test_client):
+    """
+    Test: two different url_tokens resolving to two different tenant_ids, each
+    connecting their own SSE session, then each POSTing a message via
+    /messages/?session_id=<their own> — assert get_current_tenant_id() (captured
+    via a spy) is DIFFERENT and correct for each, never cross-contaminated.
+    """
+    url_tokens = {
+        "token-tenant-alpha": "tenant-alpha-uuid",
+        "token-tenant-beta": "tenant-beta-uuid"
+    }
+
+    async def mock_lookup(token):
+        return url_tokens.get(token)
+
+    captured_tenants = []
+    async def spy_handle_post_message(scope, receive, send):
+        captured_tenants.append(get_current_tenant_id())
+        response_start = {
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [(b"content-type", b"application/json")]
+        }
+        await send(response_start)
+        await send({"type": "http.response.body", "body": b"{}"})
+
+    mock_claims = {"sub": "user_1", "aud": "digital-invoice-web", "tenant_id": "claims-tid"}
+    with patch("jwt.PyJWKClient.get_signing_key_from_jwt", return_value=MagicMock(key="fake-key")), \
+         patch("jwt.decode", return_value=mock_claims), \
+         patch("server.db_service.get_tenant_id_by_url_token", side_effect=mock_lookup), \
+         patch.object(sse_transport, "handle_post_message", side_effect=spy_handle_post_message):
+
+        async def connect_client(token):
+            scope = {
+                "type": "http",
+                "method": "GET",
+                "path": f"/sse/{token}",
+                "raw_path": f"/sse/{token}".encode(),
+                "query_string": b"",
+                "headers": [
+                    (b"authorization", b"Bearer test-valid-token"),
+                    (b"host", b"testserver"),
+                ]
+            }
+            async def rec():
+                await asyncio.Event().wait()
+                return {"type": "http.disconnect"}
+            async def snd(msg):
+                pass
+            return asyncio.create_task(app(scope, rec, snd))
+
+        task1 = await connect_client("token-tenant-alpha")
+        task2 = await connect_client("token-tenant-beta")
+
+        try:
+            for _ in range(20):
+                await asyncio.sleep(0.01)
+                has_alpha = any(t == "tenant-alpha-uuid" for t in _sse_session_tenants.values())
+                has_beta = any(t == "tenant-beta-uuid" for t in _sse_session_tenants.values())
+                if has_alpha and has_beta:
+                    break
+
+            session_alpha = next(s for s, t in _sse_session_tenants.items() if t == "tenant-alpha-uuid")
+            session_beta = next(s for s, t in _sse_session_tenants.items() if t == "tenant-beta-uuid")
+
+            headers = {
+                "Authorization": "Bearer test-valid-token",
+                "Content-Type": "application/json"
+            }
+
+            # Post for tenant alpha
+            res1 = mcp_test_client.post(f"/messages/?session_id={session_alpha}", headers=headers, json={"id": 1})
+            assert res1.status_code == 200
+            assert captured_tenants[-1] == "tenant-alpha-uuid"
+
+            # Post for tenant beta
+            res2 = mcp_test_client.post(f"/messages/?session_id={session_beta}", headers=headers, json={"id": 2})
+            assert res2.status_code == 200
+            assert captured_tenants[-1] == "tenant-beta-uuid"
+
+            # Assert they are different and isolated
+            assert captured_tenants == ["tenant-alpha-uuid", "tenant-beta-uuid"]
+            assert captured_tenants[0] != captured_tenants[1]
+        finally:
+            task1.cancel()
+            task2.cancel()
+            try:
+                await task1
+                await task2
+            except (asyncio.CancelledError, BaseException):
+                pass
+
+def test_post_messages_unknown_or_expired_session_returns_401(mcp_test_client):
+    """
+    Test: POST /messages/?session_id=<unknown-or-expired> -> 401, same error
+    shape as other 401s (no leak of whether the session_id format was almost right).
+    """
+    no_auth_res = mcp_test_client.get("/mcp")
+    expected_body = no_auth_res.json()
+
+    mock_claims = {
+        "sub": "user_123",
+        "aud": "digital-invoice-web",
+        "tenant_id": "claims-tenant-uuid"
+    }
+    with patch("jwt.PyJWKClient.get_signing_key_from_jwt", return_value=MagicMock(key="fake-key")), \
+         patch("jwt.decode", return_value=mock_claims):
+
+        headers = {
+            "Authorization": "Bearer mock-valid-token",
+            "Content-Type": "application/json"
+        }
+
+        # Unknown / non-existent session_id
+        res_unknown = mcp_test_client.post("/messages/?session_id=unknown-session-hex-12345", json={}, headers=headers)
+        assert res_unknown.status_code == 401
+        assert res_unknown.json() == expected_body
+        assert res_unknown.json()["error"] == "unauthorized"
+
+        # Missing session_id query param
+        res_missing = mcp_test_client.post("/messages/", json={}, headers=headers)
+        assert res_missing.status_code == 401
+        assert res_missing.json() == expected_body
+        assert res_missing.json()["error"] == "unauthorized"
+
+@pytest.mark.asyncio
+async def test_sse_cleanup_on_disconnect_makes_session_stale(mcp_test_client):
+    """
+    Test: after an SSE connection closes, its session_id no longer resolves a
+    tenant (entry cleaned up) -> subsequent POST to that stale session_id -> 401.
+    """
+    no_auth_res = mcp_test_client.get("/mcp")
+    expected_body = no_auth_res.json()
+
+    mock_claims = {"sub": "user_1", "aud": "digital-invoice-web", "tenant_id": "claims-tid"}
+    resolved_tenant = "tenant-disconnect-test"
+
+    with patch("jwt.PyJWKClient.get_signing_key_from_jwt", return_value=MagicMock(key="fake-key")), \
+         patch("jwt.decode", return_value=mock_claims), \
+         patch("server.db_service.get_tenant_id_by_url_token", new_callable=AsyncMock) as mock_lookup:
+        mock_lookup.return_value = resolved_tenant
+
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/sse/valid-token-for-cleanup",
+            "raw_path": b"/sse/valid-token-for-cleanup",
+            "query_string": b"",
+            "headers": [
+                (b"authorization", b"Bearer test-valid-token"),
+                (b"host", b"testserver"),
+            ]
+        }
+
+        async def receive():
+            await asyncio.Event().wait()
+            return {"type": "http.disconnect"}
+
+        async def send(message):
+            pass
+
+        task = asyncio.create_task(app(scope, receive, send))
+
+        # Wait for session to be registered
+        for _ in range(20):
+            await asyncio.sleep(0.01)
+            if any(t == resolved_tenant for t in _sse_session_tenants.values()):
+                break
+
+        matching = [s for s, t in _sse_session_tenants.items() if t == resolved_tenant]
+        assert len(matching) == 1
+        stale_session_id = matching[0]
+
+        # Cancel / close the connection
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, BaseException):
+            pass
+
+        # Wait for cleanup
+        for _ in range(20):
+            await asyncio.sleep(0.01)
+            if stale_session_id not in _sse_session_tenants:
+                break
+
+        # Confirm session_id removed from in-memory map
+        assert stale_session_id not in _sse_session_tenants
+
+        # Subsequent POST with this stale session_id must return 401 (same shape)
+        headers = {
+            "Authorization": "Bearer test-valid-token",
+            "Content-Type": "application/json"
+        }
+        res = mcp_test_client.post(f"/messages/?session_id={stale_session_id}", headers=headers, json={})
+        assert res.status_code == 401
+        assert res.json() == expected_body
+
