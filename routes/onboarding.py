@@ -155,9 +155,50 @@ async def onboarding_form_submit(
 
     # 1. Generate/reuse internal tenant_id for this company (lookup/deterministic by email)
     tenant_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, clean_email))
-    url_token = secrets.token_urlsafe(24)
 
-    # 2. Save credentials via existing db_service.save_tenant_credentials (no duplicate encryption logic)
+    # 2. Check if tenant already exists for this email (Returning-customer submit flow)
+    existing_tenant = await db_service.get_tenant(tenant_id)
+    if existing_tenant:
+        is_valid = await verify_tenant_credentials(tenant_id, clean_email, password)
+        if not is_valid:
+            return templates.TemplateResponse(
+                request=request,
+                name="onboarding/form.html",
+                context={
+                    "form_data": {"company_name": company_name, "email": email},
+                    "error": "Invalid email or password"
+                },
+                status_code=status.HTTP_401_UNAUTHORIZED
+            )
+
+        url_token = existing_tenant.get("url_token")
+        if not url_token:
+            url_token = await db_service.rotate_url_token(tenant_id)
+
+        resolved_company = existing_tenant.get("company_name") or clean_company
+        base_url = get_base_url(request)
+        mcp_server_url = f"{base_url}/mcp/{url_token}"
+        sse_server_url = f"{base_url}/sse/{url_token}"
+        mcp_api_key = settings.MCP_AUTH_TOKEN
+
+        logger.info(f"Onboarding: Verified returning customer for company '{resolved_company}' (tenant_id={tenant_id})")
+        return templates.TemplateResponse(
+            request=request,
+            name="onboarding/results.html",
+            context={
+                "tenant_id": tenant_id,
+                "company_name": resolved_company,
+                "masked_email": mask_email(clean_email),
+                "base_url": base_url,
+                "mcp_server_url": mcp_server_url,
+                "sse_server_url": sse_server_url,
+                "url_token": url_token,
+                "mcp_api_key": mcp_api_key
+            }
+        )
+
+    # 3. Save credentials via existing db_service.save_tenant_credentials for new tenant
+    url_token = secrets.token_urlsafe(24)
     try:
         await db_service.save_tenant_credentials(
             tenant_id=tenant_id,
@@ -180,7 +221,7 @@ async def onboarding_form_submit(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
-    # 3. Render results page
+    # 4. Render results page
     base_url = get_base_url(request)
     mcp_server_url = f"{base_url}/mcp/{url_token}"
     sse_server_url = f"{base_url}/sse/{url_token}"
