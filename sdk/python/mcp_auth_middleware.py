@@ -78,7 +78,7 @@ class McpAuthMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
-        if any(path == ep or path.startswith(ep.rstrip("/") + "/") for ep in self.exempt_paths):
+        if any(path == ep or (ep != "/" and path.startswith(ep.rstrip("/") + "/")) for ep in self.exempt_paths):
             return await call_next(request)
 
         token = None

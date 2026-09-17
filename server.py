@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from typing import List, Optional, Dict
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from starlette.responses import RedirectResponse
 from starlette.types import Scope, Receive, Send
 from starlette.routing import Mount
 from mcp.server.mcpserver import MCPServer
@@ -240,10 +241,15 @@ app.add_middleware(
     jwks_uri=settings.JWKS_URI,
     audience=settings.MCP_AUTH_AUDIENCE,
     revocations_uri=settings.REVOCATIONS_URI,
-    exempt_paths=["/health", "/healthz", "/docs", "/openapi.json", "/onboarding"]
+    exempt_paths=["/health", "/healthz", "/docs", "/openapi.json", "/onboarding", "/"]
 )
 
-# 7. Unauthenticated Health Check Endpoint for VPS / Coolify Monitoring
+# 7. Root Redirect to Onboarding
+@app.get("/")
+async def root_redirect():
+    return RedirectResponse(url="/onboarding")
+
+# 8. Unauthenticated Health Check Endpoint for VPS / Coolify Monitoring
 @app.get("/health", tags=["Monitoring"])
 @app.get("/healthz", tags=["Monitoring"])
 async def health_check():
@@ -254,7 +260,7 @@ async def health_check():
         "audience": settings.MCP_AUTH_AUDIENCE
     }
 
-# 8. Include Onboarding Web UI Router
+# 9. Include Onboarding Web UI Router
 app.include_router(onboarding_router)
 
 # In-memory mapping: session_id (hex str) -> tenant_id

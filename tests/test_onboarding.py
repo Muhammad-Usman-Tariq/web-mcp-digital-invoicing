@@ -38,6 +38,21 @@ def test_server_auth_wiring_matches_official_pattern():
         assert disallowed not in middleware_names, f"Unexpected custom auth middleware {disallowed} found"
 
 
+def test_root_redirects_to_onboarding_without_auth(client):
+    """
+    Confirm GET / returns a 307/302 redirect to /onboarding without requiring
+    any authentication header.
+    """
+    res = client.get("/", follow_redirects=False)
+    assert res.status_code in (302, 307)
+    assert res.headers.get("location") == "/onboarding"
+
+    # Verify following the redirect loads onboarding page without auth
+    followed = client.get("/", follow_redirects=True)
+    assert followed.status_code == 200
+    assert 'name="company_name"' in followed.text
+
+
 def test_onboarding_get_form_renders_without_auth(client):
     """
     GET /onboarding renders the form directly without any login requirement or redirect.
