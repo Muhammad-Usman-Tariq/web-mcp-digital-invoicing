@@ -1,6 +1,4 @@
 # Environment & Secrets
-.env
-.env.local
 .env.*.local
 *.key
 *.pem
@@ -19,7 +17,6 @@ __pycache__/
 htmlcov/
 
 # IDE & OS
-.vscode/
 .idea/
 .DS_Store
 Thumbs.db
@@ -31,3 +28,5 @@ blob-report/
 
 # Debugging
 debug_screenshots/
+config.bat
+node_modules

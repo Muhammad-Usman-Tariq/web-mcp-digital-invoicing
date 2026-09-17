@@ -70,6 +70,141 @@ def test_onboarding_get_form_renders_without_auth(client):
     assert 'name="password"' in html
     assert 'type="password"' in html
     assert 'autocomplete="new-password"' in html
+    assert 'id="toggle-password"' in html
+    assert 'id="eye-icon"' in html
+
+
+def test_onboarding_get_form_ignores_cookies_and_headers(client):
+    """
+    GET /onboarding always returns the blank form template regardless of any
+    cookies/headers sent with the request.
+    """
+    client.cookies.set("session", "fake_session_123")
+    client.cookies.set("auth_token", "expired_or_forged")
+    res = client.get(
+        "/onboarding",
+        headers={"Authorization": "Bearer fake_token"}
+    )
+    assert res.status_code == 200
+    html = res.text
+    assert '<h1 class="card-title">Tenant Onboarding</h1>' in html
+    assert 'name="company_name"' in html
+    assert 'name="email"' in html
+    assert 'name="password"' in html
+    assert 'id="toggle-password"' in html
+
+
+def test_onboarding_post_brand_new_email(client):
+    """
+    POST /onboarding with a brand-new email:
+    - Checks db_service.get_tenant, finds None
+    - Creates tenant, generates new url_token, saves credentials
+    - Shows results page with Log out link and caption
+    """
+    test_email = "newuser@example.com"
+    with patch("routes.onboarding.db_service.get_tenant", new_callable=AsyncMock) as mock_get_tenant, \
+         patch("routes.onboarding.db_service.save_tenant_credentials", new_callable=AsyncMock) as mock_save:
+        mock_get_tenant.return_value = None
+        mock_save.return_value = True
+
+        res = client.post("/onboarding", data={
+            "company_name": "Brand New Corp",
+            "email": test_email,
+            "password": "ValidPassword123!"
+        })
+
+        assert res.status_code == 200
+        mock_get_tenant.assert_called_once()
+        mock_save.assert_called_once()
+        saved_kwargs = mock_save.call_args.kwargs
+        assert saved_kwargs["email"] == test_email
+        assert saved_kwargs["company_name"] == "Brand New Corp"
+        assert saved_kwargs["url_token"] is not None
+        assert f"/mcp/{saved_kwargs['url_token']}" in res.text
+        assert "Log out" in res.text
+        assert "You'll need your portal email and password to view this again." in res.text
+
+
+def test_onboarding_post_returning_customer_correct_password(client):
+    """
+    POST /onboarding with an email that already has a tenant + correct password:
+    - Results page shown with the SAME url_token as before (no new tenant/token created)
+    - Assert db_service create/insert (save_tenant_credentials) was NOT called again
+    - Only the existing record was read
+    """
+    test_email = "returning@example.com"
+    test_tenant_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, test_email))
+    existing_url_token = "existing_safe_token_abc123"
+
+    existing_tenant_record = {
+        "id": test_tenant_id,
+        "company_name": "Returning Enterprise",
+        "url_token": existing_url_token,
+        "is_active": True
+    }
+
+    with patch("routes.onboarding.db_service.get_tenant", new_callable=AsyncMock) as mock_get_tenant, \
+         patch("routes.onboarding.verify_tenant_credentials", new_callable=AsyncMock) as mock_verify, \
+         patch("routes.onboarding.db_service.save_tenant_credentials", new_callable=AsyncMock) as mock_save, \
+         patch("routes.onboarding.db_service.rotate_url_token", new_callable=AsyncMock) as mock_rotate:
+        
+        mock_get_tenant.return_value = existing_tenant_record
+        mock_verify.return_value = True
+
+        res = client.post("/onboarding", data={
+            "company_name": "Returning Enterprise",
+            "email": test_email,
+            "password": "CorrectPassword123!"
+        })
+
+        assert res.status_code == 200
+        mock_get_tenant.assert_called_once_with(test_tenant_id)
+        mock_verify.assert_called_once_with(test_tenant_id, test_email, "CorrectPassword123!")
+        
+        # Assert NO create/save or rotate was executed
+        mock_save.assert_not_called()
+        mock_rotate.assert_not_called()
+
+        # Confirm results page contains the SAME existing url_token
+        assert f"/mcp/{existing_url_token}" in res.text
+        assert "Returning Enterprise" in res.text
+        assert "Log out" in res.text
+        assert "You'll need your portal email and password to view this again." in res.text
+
+
+def test_onboarding_post_returning_customer_wrong_password(client):
+    """
+    POST /onboarding with an existing email + wrong password:
+    - Generic 'Invalid email or password' error
+    - Does not reveal whether email exists or which field was wrong
+    - Status code 401
+    """
+    test_email = "victim@example.com"
+    test_tenant_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, test_email))
+
+    existing_tenant_record = {
+        "id": test_tenant_id,
+        "company_name": "Victim Inc",
+        "url_token": "victim_token_999",
+        "is_active": True
+    }
+
+    with patch("routes.onboarding.db_service.get_tenant", new_callable=AsyncMock) as mock_get_tenant, \
+         patch("routes.onboarding.verify_tenant_credentials", new_callable=AsyncMock) as mock_verify, \
+         patch("routes.onboarding.db_service.save_tenant_credentials", new_callable=AsyncMock) as mock_save:
+        
+        mock_get_tenant.return_value = existing_tenant_record
+        mock_verify.return_value = False
+
+        res = client.post("/onboarding", data={
+            "company_name": "Victim Inc",
+            "email": test_email,
+            "password": "WrongPassword999!"
+        })
+
+        assert res.status_code == 401
+        assert "Invalid email or password" in res.text
+        mock_save.assert_not_called()
 
 
 def test_onboarding_post_saves_credentials_and_renders_results(client):
